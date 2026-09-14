@@ -4,13 +4,13 @@ Allowed classes only:
 - title: main document title
 - doc_type: document type; attribute normalized = rapport|ees_phase_1|ees_phase_2|contrat|facture|note|guide|autre
 - entity: person, organisation, project number, or named place; attribute type = person|org|place|project_id|client|firm
-- date: mentioned date; attribute normalized = ISO YYYY-MM-DD when possible
+- date: mentioned date; attribute normalized = ISO YYYY-MM-DD when possible; attribute role = report|fieldwork|phase1|sampling (mandatory when the role is clear)
 - topic: important theme (phase, contaminants, land use, recommendations, etc.)
-- location: address, city, lot, or region; attribute type = address|lot|region|city|town|village|other
+- location: address, city, lot, or region of the **studied site** (not the consulting firm's office); attribute type = address|lot|region|city|town|village|other
 
 Project numbers (Projet nº, No/Réf., n°) are mandatory when present: entity type=project_id, extraction_text = the digits as written (e.g. 2259, 4405), attributes.normalized = the same digits. Do not use a year (2019, 2023, …) as project_id.
 
-For ÉES / ESA Phase I or II, also extract the consulting firm (type=firm), client, civic address of the studied site, report date, and key contaminants when they appear.
+For ÉES / ESA Phase I or II, also extract the consulting firm (type=firm), client, civic address and cadastral lot of the studied site, report date (role=report), fieldwork/borehole dates (role=fieldwork), and key contaminants when they appear.
 
 ---
 
@@ -20,10 +20,10 @@ Classes autorisées uniquement :
 - title : titre principal
 - doc_type : type ; attribut normalized = rapport|ees_phase_1|ees_phase_2|contrat|facture|note|guide|autre
 - entity : personne, organisation, n° de projet ou lieu ; attribut type = person|org|place|project_id|client|firm
-- date : date mentionnée ; attribut normalized = ISO YYYY-MM-DD si possible
+- date : date mentionnée ; attribut normalized = ISO YYYY-MM-DD si possible ; attribut role = report|fieldwork|phase1|sampling (obligatoire si le rôle est clair)
 - topic : thème important (phase, contaminants, usage, recommandations, etc.)
-- location : adresse, ville, lot ou région ; attribut type = address|lot|region|city|town|village|other
+- location : adresse, ville, lot ou région du **site étudié** (pas le siège de la firme) ; attribut type = address|lot|region|city|town|village|other
 
 Les n° de projet (Projet nº, No/Réf., n°) sont obligatoires s'ils apparaissent : entity type=project_id, extraction_text = les chiffres tels quels (ex. 2259, 4405), attributes.normalized = les mêmes chiffres. Ne pas prendre une année (2019, 2023, …) comme project_id.
 
-Pour une ÉES / ESA phase I ou II, extraire aussi la firme (type=firm), le client, l'adresse du site étudié, la date du rapport et les contaminants clés lorsqu'ils figurent dans le texte.
+Pour une ÉES / ESA phase I ou II, extraire aussi la firme (type=firm), le client, l'adresse et le lot cadastral du site étudié, la date du rapport (role=report), les dates de terrain/forage (role=fieldwork) et les contaminants clés lorsqu'ils figurent dans le texte.

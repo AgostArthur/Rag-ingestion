@@ -1,0 +1,42 @@
+from rag_ingestion.normalize import (
+    address_key,
+    infer_date_role,
+    is_project_token,
+    iso_date,
+    normalize_lot,
+    project_tokens_in_text,
+    site_id_for,
+)
+
+
+def test_normalize_lot_strips_spaces_and_words():
+    assert normalize_lot("lot 2 363 352") == "2363352"
+    assert normalize_lot("2363352") == "2363352"
+    assert normalize_lot("4405") is None
+    assert normalize_lot("") is None
+
+
+def test_site_id_prefers_lot_over_address():
+    assert site_id_for(lot="2363352", address="619, route 341") == "lot:2363352"
+    addr_id = site_id_for(lot=None, address="619, route 341, L'Épiphanie")
+    assert addr_id is not None and addr_id.startswith("addr:")
+    same = site_id_for(lot=None, address="619 Route 341, L’Épiphanie")
+    assert address_key("619, route 341, L'Épiphanie") == address_key(
+        "619 Route 341, L’Épiphanie"
+    )
+    assert same == addr_id
+
+
+def test_project_tokens_skip_years():
+    assert project_tokens_in_text("contamination 4405 en 2019") == ["4405"]
+    assert is_project_token("2019") is False
+    assert is_project_token("2259") is True
+
+
+def test_iso_date_and_roles():
+    assert iso_date("2023-01-03") == "2023-01-03"
+    assert iso_date("3 janvier 2023") is None
+    assert infer_date_role("report", "3 janvier 2023") == "report"
+    assert infer_date_role(None, "Campagne de forages") == "fieldwork"
+    assert infer_date_role(None, "Date du rapport") == "report"
+    assert infer_date_role(None, "quelque part") == "unknown"

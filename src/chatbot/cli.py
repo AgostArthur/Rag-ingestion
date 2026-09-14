@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 import uuid
@@ -77,6 +78,10 @@ def cmd_repl(_args: argparse.Namespace) -> int:
             print()
             continue
         print(f"assistant> {last_message_text(result)}")
+        from chatbot.focus import envelope_from_result
+
+        envelope = envelope_from_result(result)
+        print(json.dumps(envelope["focus"], ensure_ascii=False))
         print()
     return 0
 

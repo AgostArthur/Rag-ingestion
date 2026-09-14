@@ -10,10 +10,23 @@ build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+:memory:.ses
 
+incoming/*
+!incoming/.gitkeep
 data/parsed/*
 data/extractions/*
 data/documents/*
+data/archive/*
+data/failed/*
+data/catalog.sqlite
+data/catalog.sqlite-wal
+data/catalog.sqlite-shm
+data/chat_checkpoints.sqlite
+data/chat_checkpoints.sqlite-wal
+data/chat_checkpoints.sqlite-shm
 !data/parsed/.gitkeep
 !data/extractions/.gitkeep
 !data/documents/.gitkeep
+!data/archive/.gitkeep
+!data/failed/.gitkeep

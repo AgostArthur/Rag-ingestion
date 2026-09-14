@@ -1,114 +1,103 @@
-# RAG ingestion (local)
+# RAG ingestion
 
-Pipeline : PDF → LiteParse (OCR plugin) → Markdown → chunks + LangExtract → embeddings FastEmbed → Qdrant.
+Pipeline : PDF → LiteParse (OCR) → Markdown → chunks + LangExtract → **catalog SQLite** → FastEmbed → Qdrant.
 
-Deux packages sous `src/` :
+Deux packages :
 
-- `rag_ingestion` — ingest + recherche (`retrieve.search`)
-- `chatbot` — agent LangGraph ; le RAG n’est qu’un outil (`search_knowledge`)
+- `rag_ingestion` — ingest, recherche hybride, catalog (`sites` / `documents` / `events`)
+- `chatbot` — agent LangGraph ; le RAG est l’outil `search_knowledge`. `POST /chat` renvoie `focus` + citations issus des hits, pas du texte du modèle.
 
-## Démarrage
+## Déploiement via Docker
+
+Le produit est **Compose** : API chat, worker d’ingest, Qdrant. Le LLM n’est **pas** dans l’image (clé API cloud, ou llama-server / Ollama sur la machine hôte).
 
 ```bash
 cp .env.example .env
+# Cloud chat, par exemple :
+# OPENAI_BASE_URL=https://api.openai.com/v1
+# OPENAI_API_KEY=sk-...
+# OPENAI_MODEL=gpt-4o-mini
+
+docker compose up -d --build
+```
+
+- Déposer les PDF dans `**incoming/**`. Le service `worker` les ingère, puis les déplace vers `data/archive/{sha}/` (doublon SHA-256 : archivé sans ré-ingest). Échecs → `data/failed/`.
+- API : `http://localhost:8000` (`POST /chat`, `GET /health`, catalog).
+- Qdrant : `http://localhost:6333`.
+
+Image client (embeddings déjà dans l’image, premier `build` plus long) :
+
+```bash
+PREFETCH_EMBED=1 docker compose build
 docker compose up -d
-python3.11 -m venv .venv
+```
+
+LLM hors image :
+
+- llama-server **sur l’hôte** : `LLAMA_SERVER_BASE_URL=http://host.docker.internal:8080/v1`
+- Ollama **sur l’hôte** : `OLLAMA_BASE_URL=http://host.docker.internal:11434`
+- Ollama **dans Compose** : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://ollama:11434`
+- Sans Ollama : `INGEST_SKIP_EXTRACT=1` (chunks + embeddings seulement)
+
+`OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` priment sur `LLAMA_SERVER_*` s’ils sont définis.
+
+Le venv Python reste utile **en développement** (`pip install -e ".[dev]"`), pas pour un poste client.
+
+## Ingest : ce qui déclenche quoi
+
+Le catalog SQLite **n’est pas** la source des fichiers. C’est le **registre** écrit **après** un ingest réussi (`document_id` = SHA-256 du PDF).
+
+
+| Déclencheur        | Commande / service                                               |
+| ------------------ | ---------------------------------------------------------------- |
+| Drop folder (prod) | Fichier dans `incoming/` → `rag-ingest watch` (Compose `worker`) |
+| Manuel             | `rag-ingest ingest chemin.pdf` ou `rag-ingest ingest dossier/`   |
+| Un scan            | `rag-ingest watch --once` (cron)                                 |
+
+
+Rien ne se passe si on copie un PDF ailleurs que dans `incoming/` sans lancer `ingest` / `watch`. Un SHA déjà au catalog est archivé sans ré-ingest ; `--force` pour réessayer.
+
+```bash
+rag-ingest watch --once
+rag-ingest query "contamination 4405" --filter project_id=4405
+```
+
+Artefacts : `data/parsed/`, `data/extractions/`, `data/documents/*.json`, `data/catalog.sqlite`, `data/archive/`.
+
+Le `site_id` privilégie le lot (`lot:2363352`). Deux rapports du même site (4405 et 2259) partagent un site, restent deux documents. Pas de géocodage (`geocode_status=skipped`).
+
+Recherche **hybride** : cosine + n° de projet dans le payload **ou** le texte du chunk.
+
+## Développement (venv)
+
+```bash
+cp .env.example .env
+docker compose up -d qdrant
+python3 -m venv .venv
 source .venv/bin/activate
-
 pip install -e ".[dev]"
-# Chatbot LangGraph :
 pip install -e ".[chat]"
-```
-
-Config : changer `.env` (prioritaire) ou les fichiers sous `config/` — `config/langextract/` (ingest) et `config/chatbot/` (chat).
-
-## Changer de modèle d'embeddings
-
-1. Lister les modèles FastEmbed disponibles :
-
-```bash
-python -c "from fastembed import TextEmbedding; print('\n'.join(m['model']+' ('+str(m['dim'])+'d)' for m in TextEmbedding.list_supported_models()))"
-```
-
-1. Dans `.env`, fixer le nom exact (la dimension Qdrant est lue automatiquement chez FastEmbed — pas besoin de `EMBED_DIM`) :
-
-```env
-EMBED_MODEL=intfloat/multilingual-e5-large
-```
-
-Exemples multilingues : `intfloat/multilingual-e5-large` (1024-d), `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, `nomic-ai/nomic-embed-text-v1.5`.
-
-1. Ré-ingérer les documents (les vecteurs d'un modèle ne sont pas comparables à ceux d'un autre).
-
-Si `EMBED_MODEL` n'est pas dans FastEmbed (ex. `BAAI/bge-m3` sous FastEmbed 0.8), repli automatique vers `DEFAULT_EMBED_FALLBACK_MODEL` dans `config.py` (par défaut `intfloat/multilingual-e5-large`).
-
-## Changer le schéma LangExtract (projet)
-
-Prompts et few-shots sont trouve dans le dossier : /config.
-
-```env
-LANGEXTRACT_PROMPT_FILE=config/langextract/prompt.txt
-LANGEXTRACT_FEW_SHOTS_FILE=config/langextract/few_shots.json
-```
-
-Pour un autre domaine (contrats, factures, …) : dupliquer les fichiers sous `config/langextract/` (ex. `prompt_contrats.txt`, `few_shots_contrats.json`) et mettre à jour ces deux variables. Alias accepté pour les few-shots : `LANGEXTRACT_FEW_SHOTS_EXAMPLE`.
-
-Format JSON des few-shots :
-
-```json
-[
-  {
-    "text": "…extrait d'exemple…",
-    "extractions": [
-      {
-        "extraction_class": "title",
-        "extraction_text": "…",
-        "attributes": { "normalized": "…" }
-      }
-    ]
-  }
-]
-```
-
-Chaque `extraction_text` doit apparaître tel quel dans le champ `text` (alignement LangExtract).
-
-## Usage
-
-Démarche d’ingestion détaillée (étapes, offsets, LangExtract, payload Qdrant, cas d’échec) : [`docs/ingestion.md`](docs/ingestion.md).
-
-```bash
 rag-ingest ingest chemin/vers/doc.pdf
-rag-ingest ingest chemin/vers/doc.pdf --skip-extract
-rag-ingest query "clause de responsabilité" --filter doc_type=rapport --limit 5
-```
-
-Artefacts : `data/parsed/{id}.md`, `data/extractions/{id}.jsonl` + `.html`, `data/documents/{id}.json`.
-
-## Chatbot (LangGraph + llama-server)
-
-Le LLM n’a pas les chunks dans le prompt : il appelle l’outil `search_knowledge`, qui passe par `rag_ingestion.retrieve.search` (FastEmbed + Qdrant).
-
-Prérequis : Qdrant avec des documents ingérés, extra `[chat]`, et **llama-server** (llama.cpp) avec tool-calling. Ce n’est pas l’API cloud OpenAI : llama-server expose le protocole HTTP `/v1/chat/completions`. Le client LangChain `ChatOpenAI` pointe vers `LLAMA_SERVER_BASE_URL`.
-
-```bash
-pip install -e ".[chat]"
-llama-server --jinja -fa -m /chemin/vers/modele.gguf --port 8080
-# Modèle avec template d’outils (ex. Qwen2.5-Instruct). Vérifier http://localhost:8080/props
-```
-
-```env
-CHAT_PROMPT_FILE=config/chatbot/prompt.txt
-CHAT_SETTINGS_FILE=config/chatbot/settings.json
-```
-
-Le prompt système est dans `[config/chatbot/prompt.txt](config/chatbot/prompt.txt)` (même idée que `[config/langextract/prompt.txt](config/langextract/prompt.txt)` / `[few_shots.json](config/langextract/few_shots.json)`). URL llama-server, température, `rag_limit` et l’API HTTP sont dans `[config/chatbot/settings.json](config/chatbot/settings.json)`. Les clés `.env` du même nom restent des surcharges optionnelles.
-
-```bash
-rag-chat
-# /quit  /new
-
 rag-chat serve
-# POST /chat  { "message": "…", "thread_id": "optionnel" }
-# GET  /health
 ```
 
+## Embeddings / LangExtract
+
+Changer `EMBED_MODEL` dans `.env` (dimension lue chez FastEmbed). Ré-ingérer après un changement de modèle.
+
+Si le nom n’est pas dans FastEmbed, repli `intfloat/multilingual-e5-large`.
+
+Schéma LangExtract : `config/langextract/prompt.txt` + `few_shots.json` (`LANGEXTRACT_PROMPT_FILE`, `LANGEXTRACT_FEW_SHOTS_FILE`). Chaque `extraction_text` de few-shot doit apparaître tel quel dans `text`. Pour les ÉES : `location` (site étudié), `date.role` (`report`  `fieldwork`), `firm` / `client` / `project_id`.
+
+Détail du pipeline : `[docs/ingestion.md](docs/ingestion.md)`.
+
+## Chat
+
+Le LLM n’a pas les chunks dans le prompt. Compatible **OpenAI HTTP** (`OPENAI_`* ou `LLAMA_SERVER_*`). llama-server local : `llama-server --jinja -fa -m modele.gguf --port 8080`.
+
+```bash
+rag-chat          # REPL ; JSON focus sous la réponse
+rag-chat serve    # POST /chat → { reply, thread_id, focus, documents, citations }
+```
+
+`GET /documents/{id}`, `GET /sites/{id}`, `GET /sites/{id}/timeline`. Checkpoints : `data/chat_checkpoints.sqlite`.

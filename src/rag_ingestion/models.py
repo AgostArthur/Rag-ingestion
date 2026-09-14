@@ -90,6 +90,42 @@ class ChunkPayload:
     extraction_ids: list[str]
     parse_quality: str
     source_path: str
+    site_id: str | None = None
+    project_id: str | None = None
+
+
+@dataclass(frozen=True)
+class TypedEvent:
+    """Date typée pour la timeline (`events`), jamais générée par le chatbot."""
+
+    iso_date: str
+    role: str
+    label: str
+
+
+@dataclass
+class DocumentMeta:
+    """Fiche métier d'un PDF (catalog SQL + éventuellement JSON parent)."""
+
+    document_id: str
+    source_path: str
+    parse_quality: str
+    project_ids: list[str] = field(default_factory=list)
+    title: str | None = None
+    doc_type: str | None = None
+    firm: str | None = None
+    client: str | None = None
+    address: str | None = None
+    lot_cadastral: str | None = None
+    city: str | None = None
+    site_id: str | None = None
+    report_date: str | None = None
+    events: list[TypedEvent] = field(default_factory=list)
+
+    @property
+    def project_id(self) -> str | None:
+        """N° de projet principal : le premier extrait, ou None."""
+        return self.project_ids[0] if self.project_ids else None
 
 
 @dataclass
@@ -105,3 +141,6 @@ class IngestResult:
     skip_reason: str | None = None
     step_seconds: dict[str, float] = field(default_factory=dict)
     total_seconds: float = 0.0
+    site_id: str | None = None
+    project_id: str | None = None
+    error: str | None = None

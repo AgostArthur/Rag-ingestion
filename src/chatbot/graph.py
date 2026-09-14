@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import Any
 
 from chatbot.config import ChatSettings, load_chat_settings, load_prompt
 from chatbot.llm import build_chat_model
 from chatbot.tools import build_search_tool
+
+logger = logging.getLogger(__name__)
 
 _STOP_TOOL_NUDGE = (
     "You have reached the maximum number of searches for this turn. "
@@ -90,6 +94,31 @@ def _trim_messages_for_model(state: dict[str, Any], *, max_tokens: int) -> dict[
     return {"llm_input_messages": trimmed}
 
 
+def build_checkpointer(path: Path):
+    """Checkpointer SQLite (conversations durables) ; repli mémoire si extra absent."""
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+    except ImportError:
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        logger.warning(
+            "langgraph-checkpoint-sqlite is not installed; chat threads are in-memory. "
+            "pip install -e '.[chat]'"
+        )
+        return InMemorySaver()
+
+    import sqlite3
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), check_same_thread=False)
+    saver = SqliteSaver(conn)
+    setup = getattr(saver, "setup", None)
+    if callable(setup):
+        setup()
+    logger.info("Chat checkpointer: %s", path)
+    return saver
+
+
 def recursion_limit_for(max_tool_calls: int) -> int:
     """Plafond LangGraph : hook + LLM + outil par search, plus un tour de réponse."""
     return max(12, int(max_tool_calls) * 6 + 8)
@@ -100,19 +129,19 @@ def build_graph(settings: ChatSettings | None = None, checkpointer=None):
 
     Args:
         settings: Config chatbot ; `config/chatbot/` si omis.
-        checkpointer: Persistence de conversation ; `InMemorySaver` si omis.
+        checkpointer: Persistence de conversation ; SQLite sous
+            `checkpoint_db` si omis (`InMemorySaver` si extra sqlite absent).
 
     Returns:
         Graphe compilé LangGraph (`invoke` / `stream`).
     """
     from langchain_core.messages import HumanMessage
-    from langgraph.checkpoint.memory import InMemorySaver
     from langgraph.prebuilt import create_react_agent
 
     s = settings or load_chat_settings()
     model = build_chat_model(s)
     tools = [build_search_tool(s)]
-    saver = checkpointer if checkpointer is not None else InMemorySaver()
+    saver = checkpointer if checkpointer is not None else build_checkpointer(s.checkpoint_db)
     max_tokens = s.max_context_tokens
     max_tool_calls = s.max_tool_calls
 

@@ -36,6 +36,8 @@ def test_load_default_settings():
     assert int(data["max_context_tokens"]) >= 2000
     assert int(data["max_tool_calls"]) >= 1
     assert int(data["rag_hit_max_chars"]) >= 100
+    assert int(data["rag_table_max_chars"]) >= 400
+    assert data["checkpoint_db"]
     assert "temperature" in data
 
 

@@ -26,10 +26,12 @@ _JSON_ENV_KEYS: dict[str, str] = {
     "temperature": "CHAT_TEMPERATURE",
     "rag_limit": "CHAT_RAG_LIMIT",
     "rag_hit_max_chars": "CHAT_RAG_HIT_MAX_CHARS",
+    "rag_table_max_chars": "CHAT_RAG_TABLE_MAX_CHARS",
     "max_context_tokens": "CHAT_MAX_CONTEXT_TOKENS",
     "max_tool_calls": "CHAT_MAX_TOOL_CALLS",
     "api_host": "CHAT_API_HOST",
     "api_port": "CHAT_API_PORT",
+    "checkpoint_db": "CHAT_CHECKPOINT_DB",
 }
 
 
@@ -107,11 +109,12 @@ def load_settings_file(path: Path) -> dict:
     return raw
 
 
-def _str_from(data: dict, key: str, default: str) -> str:
+def _str_from(data: dict, key: str, default: str, extra_env: tuple[str, ...] = ()) -> str:
     env_key = _JSON_ENV_KEYS[key]
-    env_val = os.getenv(env_key)
-    if env_val is not None and env_val.strip():
-        return env_val.strip()
+    for candidate in (*extra_env, env_key):
+        env_val = os.getenv(candidate)
+        if env_val is not None and env_val.strip():
+            return env_val.strip()
     raw = data.get(key, default)
     text = str(raw).strip() if raw is not None else ""
     return text or default
@@ -147,10 +150,12 @@ class ChatSettings:
     temperature: float
     rag_limit: int
     rag_hit_max_chars: int
+    rag_table_max_chars: int
     max_context_tokens: int
     max_tool_calls: int
     api_host: str
     api_port: int
+    checkpoint_db: Path
     prompt_file: Path
     settings_file: Path
     project_root: Path
@@ -166,18 +171,33 @@ def load_chat_settings() -> ChatSettings:
     data = load_settings_file(settings_file)
     return ChatSettings(
         llama_server_base_url=_str_from(
-            data, "llama_server_base_url", "http://localhost:8080/v1"
+            data,
+            "llama_server_base_url",
+            "http://localhost:8080/v1",
+            extra_env=("OPENAI_BASE_URL",),
         ).rstrip("/")
         or "http://localhost:8080/v1",
-        llama_server_model=_str_from(data, "llama_server_model", "local"),
-        llama_server_api_key=_str_from(data, "llama_server_api_key", "sk-no-key-required"),
+        llama_server_model=_str_from(
+            data, "llama_server_model", "local", extra_env=("OPENAI_MODEL",)
+        ),
+        llama_server_api_key=_str_from(
+            data,
+            "llama_server_api_key",
+            "sk-no-key-required",
+            extra_env=("OPENAI_API_KEY",),
+        ),
         temperature=_float_from(data, "temperature", 0.2),
         rag_limit=_int_from(data, "rag_limit", 5, minimum=1),
-        rag_hit_max_chars=_int_from(data, "rag_hit_max_chars", 600, minimum=100),
+        rag_hit_max_chars=_int_from(data, "rag_hit_max_chars", 1200, minimum=100),
+        rag_table_max_chars=_int_from(data, "rag_table_max_chars", 2400, minimum=400),
         max_context_tokens=_int_from(data, "max_context_tokens", 48000, minimum=2000),
         max_tool_calls=_int_from(data, "max_tool_calls", 2, minimum=1),
         api_host=_str_from(data, "api_host", "127.0.0.1"),
         api_port=_int_from(data, "api_port", 8000, minimum=1),
+        checkpoint_db=_resolve_path(
+            _str_from(data, "checkpoint_db", "data/chat_checkpoints.sqlite"),
+            "data/chat_checkpoints.sqlite",
+        ),
         prompt_file=prompt_file,
         settings_file=settings_file,
         project_root=_PROJECT_ROOT,

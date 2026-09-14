@@ -4,9 +4,11 @@
   "llama_server_api_key": "sk-no-key-required",
   "temperature": 0.2,
   "rag_limit": 5,
-  "rag_hit_max_chars": 600,
+  "rag_hit_max_chars": 1200,
+  "rag_table_max_chars": 2400,
   "max_context_tokens": 48000,
   "max_tool_calls": 8,
   "api_host": "127.0.0.1",
-  "api_port": 8000
+  "api_port": 8000,
+  "checkpoint_db": "data/chat_checkpoints.sqlite"
 }

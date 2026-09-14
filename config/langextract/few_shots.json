@@ -38,7 +38,7 @@
     ]
   },
   {
-    "text": "# ENVIRO-EXPERTS\n\nProjet nº : 4405\nÉvaluation environnementale de site phase II de la propriété sise au 619, route 341, L'Épiphanie, Québec.\nDate du rapport : 3 janvier 2023.\nMandat : contamination des sols (HAM, HAP, métaux).",
+    "text": "# ENVIRO-EXPERTS\n\nProjet nº : 4405\nÉvaluation environnementale de site phase II de la propriété sise au 619, route 341, L'Épiphanie, Québec (lot 2 363 352).\nDate du rapport : 3 janvier 2023.\nCampagne de forages : 17 août 2019.\nMandat : contamination des sols (HAM, HAP, métaux).",
     "extractions": [
       {
         "extraction_class": "title",
@@ -70,13 +70,23 @@
         "attributes": { "type": "address" }
       },
       {
+        "extraction_class": "location",
+        "extraction_text": "lot 2 363 352",
+        "attributes": { "type": "lot", "normalized": "2363352" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "17 août 2019",
+        "attributes": { "normalized": "2019-08-17", "role": "fieldwork" }
+      },
+      {
         "extraction_class": "topic",
         "extraction_text": "contamination des sols"
       }
     ]
   },
   {
-    "text": "Géosphère Consultants — Projet nº : 2259\nÉES phase II, 03 janvier 2024, 619, Route 341, L'Épiphanie.",
+    "text": "Géosphère Consultants — Projet nº : 2259\nÉES phase II, 03 janvier 2024, 619, Route 341, L'Épiphanie, lot 2 363 352.",
     "extractions": [
       {
         "extraction_class": "title",
@@ -100,12 +110,17 @@
       {
         "extraction_class": "date",
         "extraction_text": "03 janvier 2024",
-        "attributes": { "normalized": "2024-01-03" }
+        "attributes": { "normalized": "2024-01-03", "role": "report" }
       },
       {
         "extraction_class": "location",
         "extraction_text": "619, Route 341, L'Épiphanie",
         "attributes": { "type": "address" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "lot 2 363 352",
+        "attributes": { "type": "lot", "normalized": "2363352" }
       }
     ]
   }

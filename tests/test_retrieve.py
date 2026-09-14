@@ -36,7 +36,7 @@ def test_search_embeds_then_queries_qdrant(monkeypatch):
         captured["embed_settings"] = settings
         return [0.1, 0.2, 0.3]
 
-    def fake_similar(collection, vector, *, limit=5, filters=None, settings=None):
+    def fake_similar(collection, vector, *, limit=5, filters=None, settings=None, **kwargs):
         captured["collection"] = collection
         captured["vector"] = vector
         captured["limit"] = limit

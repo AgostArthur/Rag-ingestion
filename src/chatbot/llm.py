@@ -1,7 +1,7 @@
-"""Client LLM : serveur compatible OpenAI (llama-server / llama.cpp).
+"""Client LLM : serveur compatible OpenAI (`/v1/chat/completions`).
 
-`ChatOpenAI` est le client HTTP du protocole `/v1/chat/completions`.
-L'inférence reste locale (llama-server) ; aucun appel au cloud OpenAI.
+En local : llama-server. En cloud : `OPENAI_BASE_URL` + `OPENAI_API_KEY`
+(ou `LLAMA_SERVER_*`). Aucun fournisseur n'est imposé.
 """
 
 from __future__ import annotations

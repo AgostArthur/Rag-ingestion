@@ -59,11 +59,22 @@ def _int_env(key: str, default: int, *, minimum: int) -> int:
 
 
 def _float_env(key: str, default: float) -> float:
-    """Flottant d'environnement ; `default` si invalide."""
+    """Flottant d'environnement ; `default` si invalide ou absent."""
+    raw = os.getenv(key)
+    if raw is None or not str(raw).strip():
+        return default
     try:
-        return float(os.getenv(key, str(default)).strip())
+        return float(raw)
     except ValueError:
         return default
+
+
+def _bool_env(key: str, default: bool) -> bool:
+    """Booléen d'environnement (`1`/`true`/`yes`/`on`)."""
+    raw = os.getenv(key)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -86,6 +97,12 @@ class Settings:
     chunk_overlap_chars: int
     data_dir: Path
     project_root: Path
+    incoming_dir: Path | None = None
+    archive_dir: Path | None = None
+    failed_dir: Path | None = None
+    ingest_poll_seconds: int = 10
+    ingest_skip_existing: bool = True
+    ingest_skip_extract: bool = False
 
     @property
     def parsed_dir(self) -> Path:
@@ -101,6 +118,23 @@ class Settings:
     def documents_dir(self) -> Path:
         """Dossier des fiches parent JSON (métadonnées document)."""
         return self.data_dir / "documents"
+
+    @property
+    def catalog_path(self) -> Path:
+        """Fichier SQLite du catalog métier (`sites` / `documents` / `events`)."""
+        return self.data_dir / "catalog.sqlite"
+
+    def resolved_incoming_dir(self) -> Path:
+        """Dossier d'arrivée des PDF (drop folder)."""
+        return self.incoming_dir or (self.project_root / "incoming")
+
+    def resolved_archive_dir(self) -> Path:
+        """PDF ingérés (ou doublons) après traitement."""
+        return self.archive_dir or (self.data_dir / "archive")
+
+    def resolved_failed_dir(self) -> Path:
+        """PDF dont l'ingest a échoué."""
+        return self.failed_dir or (self.data_dir / "failed")
 
 
 def load_settings() -> Settings:
@@ -154,4 +188,10 @@ def load_settings() -> Settings:
         ),
         data_dir=data_dir,
         project_root=root,
+        incoming_dir=_resolve_path(os.getenv("INCOMING_DIR", ""), "incoming"),
+        archive_dir=_resolve_path(os.getenv("ARCHIVE_DIR", ""), str(data_dir / "archive")),
+        failed_dir=_resolve_path(os.getenv("FAILED_DIR", ""), str(data_dir / "failed")),
+        ingest_poll_seconds=_int_env("INGEST_POLL_SECONDS", 10, minimum=1),
+        ingest_skip_existing=_bool_env("INGEST_SKIP_EXISTING", True),
+        ingest_skip_extract=_bool_env("INGEST_SKIP_EXTRACT", False),
     )

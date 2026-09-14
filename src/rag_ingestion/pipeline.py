@@ -1,4 +1,4 @@
-"""Orchestration ingest : parse → chunk → LangExtract → embed → Qdrant."""
+"""Orchestration ingest : parse → chunk → LangExtract → catalog → embed → Qdrant."""
 
 from __future__ import annotations
 
@@ -8,12 +8,14 @@ from collections import Counter
 from pathlib import Path
 
 from rag_ingestion.align import align_extractions
+from rag_ingestion.catalog import upsert_document_meta
 from rag_ingestion.chunk import chunk_markdown
 from rag_ingestion.config import Settings, load_settings
+from rag_ingestion.document_meta import build_document_meta, stamp_payloads
 from rag_ingestion.embed import embed_texts, embedding_dimension
 from rag_ingestion.extract import extract_structured
 from rag_ingestion.logging_setup import StepTimer
-from rag_ingestion.models import GroundedExtraction, IngestResult
+from rag_ingestion.models import DocumentMeta, GroundedExtraction, IngestResult
 from rag_ingestion.parse import parse_pdf
 from rag_ingestion.qdrant_store import (
     delete_by_document_id,
@@ -36,8 +38,9 @@ def _write_parent(
     warnings: list[str],
     step_seconds: dict[str, float],
     total_seconds: float,
+    meta: DocumentMeta | None = None,
 ) -> None:
-    """Écrit la fiche parent JSON (JSON LangExtract brut reste dans extractions/)."""
+    """Écrit la fiche parent JSON (journal d'ingest + identité catalog)."""
     settings.documents_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "document_id": document_id,
@@ -51,10 +54,31 @@ def _write_parent(
         "markdown_path": markdown_path,
         "extraction_jsonl": str(settings.extractions_dir / f"{document_id}.jsonl"),
         "extraction_html": str(settings.extractions_dir / f"{document_id}.html"),
+        "catalog_path": str(settings.catalog_path),
         "warnings": warnings,
         "step_seconds": {k: round(v, 4) for k, v in step_seconds.items()},
         "total_seconds": round(total_seconds, 4),
     }
+    if meta is not None:
+        payload.update(
+            {
+                "site_id": meta.site_id,
+                "project_id": meta.project_id,
+                "project_ids": meta.project_ids,
+                "title": meta.title,
+                "doc_type": meta.doc_type,
+                "firm": meta.firm,
+                "client": meta.client,
+                "address": meta.address,
+                "lot_cadastral": meta.lot_cadastral,
+                "city": meta.city,
+                "report_date": meta.report_date,
+                "events": [
+                    {"iso_date": e.iso_date, "role": e.role, "label": e.label}
+                    for e in meta.events
+                ],
+            }
+        )
     path = settings.documents_dir / f"{document_id}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info("Document record written: %s", path)
@@ -70,6 +94,9 @@ def _finish(
     timer: StepTimer,
     skipped: bool = False,
     skip_reason: str | None = None,
+    site_id: str | None = None,
+    project_id: str | None = None,
+    error: str | None = None,
 ) -> IngestResult:
     total = timer.total_seconds()
     for line in timer.summary_lines():
@@ -84,6 +111,9 @@ def _finish(
         skip_reason=skip_reason,
         step_seconds=dict(timer.steps),
         total_seconds=total,
+        site_id=site_id,
+        project_id=project_id,
+        error=error,
     )
 
 
@@ -93,10 +123,11 @@ def ingest_path(
     settings: Settings | None = None,
     skip_extract: bool = False,
 ) -> IngestResult:
-    """Ingest un PDF : parse, chunk, extrait, embed, upsert (un point par chunk).
+    """Ingest un PDF : parse, chunk, extrait, catalog, embed, upsert (un point par chunk).
 
     Quality gates : Markdown vide ou aucun chunk → skip. LangExtract en échec
     → avertissement et poursuite sans métadonnées. Ré-ingest : delete puis upsert.
+    Le catalog SQLite (sites / documents / events) est écrit après l'alignement.
 
     Args:
         path: Chemin du PDF.
@@ -128,7 +159,7 @@ def ingest_path(
     warnings: list[str] = []
     with timer.step(
         "parse",
-        "Step 1/6 — Inspect PDF then convert to Markdown…",
+        "Step 1/7 — Inspect PDF then convert to Markdown…",
     ):
         parsed = parse_pdf(path, settings=s)
     logger.info("  document_id=%s (%s)", parsed.document_id, timer.took("parse"))
@@ -154,7 +185,7 @@ def ingest_path(
 
     with timer.step(
         "chunk",
-        f"Step 2/6 — Chunking text ({s.chunk_size_chars} chars, "
+        f"Step 2/7 — Chunking text ({s.chunk_size_chars} chars, "
         f"overlap {s.chunk_overlap_chars})…",
     ):
         chunks = chunk_markdown(
@@ -183,12 +214,12 @@ def ingest_path(
 
     extractions: list[GroundedExtraction] = []
     if skip_extract:
-        logger.info("Step 3/6 — LangExtract skipped (--skip-extract).")
+        logger.info("Step 3/7 — LangExtract skipped (--skip-extract).")
         timer.steps["langextract"] = 0.0
     else:
         with timer.step(
             "langextract",
-            f"Step 3/6 — Structured extraction (Ollama {s.langextract_model})…",
+            f"Step 3/7 — Structured extraction (Ollama {s.langextract_model})…",
         ):
             try:
                 extractions = extract_structured(
@@ -214,7 +245,7 @@ def ingest_path(
 
     with timer.step(
         "align",
-        "Step 4/6 — Attach labels to chunks…",
+        "Step 4/7 — Attach labels to chunks…",
     ):
         payloads = align_extractions(
             chunks,
@@ -229,17 +260,42 @@ def ingest_path(
         timer.took("align"),
     )
 
+    meta: DocumentMeta | None = None
+    with timer.step(
+        "catalog",
+        "Step 5/7 — Document catalog (SQLite sites / documents / events)…",
+    ):
+        meta = build_document_meta(
+            extractions,
+            document_id=parsed.document_id,
+            source_path=parsed.source_path,
+            parse_quality=parsed.inspect.parse_quality,
+        )
+        try:
+            meta = upsert_document_meta(meta, settings=s)
+        except Exception as exc:
+            warnings.append(f"Catalog upsert failed: {exc}")
+            logger.exception("Catalog upsert failed — continuing with Qdrant.")
+        stamp_payloads(payloads, meta)
+    logger.info(
+        "  site_id=%s project_id=%s events=%s (%s).",
+        meta.site_id,
+        meta.project_id,
+        len(meta.events),
+        timer.took("catalog"),
+    )
+
     dim = embedding_dimension(s)
     with timer.step(
         "embed",
-        f"Step 5/6 — Computing embeddings ({len(payloads)} texts, dim {dim})…",
+        f"Step 6/7 — Computing embeddings ({len(payloads)} texts, dim {dim})…",
     ):
         vectors = embed_texts([p.chunk.text for p in payloads], settings=s)
     logger.info("  %s vector(s) computed (%s).", len(vectors), timer.took("embed"))
 
     with timer.step(
         "qdrant",
-        f"Step 6/6 — Writing to Qdrant « {s.qdrant_collection} »…",
+        f"Step 7/7 — Writing to Qdrant « {s.qdrant_collection} »…",
     ):
         ensure_collection(s.qdrant_collection, vector_size=dim, settings=s)
         delete_by_document_id(s.qdrant_collection, parsed.document_id, settings=s)
@@ -262,13 +318,17 @@ def ingest_path(
         warnings=warnings,
         step_seconds=dict(timer.steps),
         total_seconds=total,
+        meta=meta,
     )
     logger.info(
-        "Ingest complete — document_id=%s · %s chunk(s) · %s extraction(s) · quality=%s",
+        "Ingest complete — document_id=%s · %s chunk(s) · %s extraction(s) · "
+        "quality=%s · site_id=%s · project_id=%s",
         parsed.document_id,
         n,
         len(extractions),
         parsed.inspect.parse_quality,
+        meta.site_id if meta else None,
+        meta.project_id if meta else None,
     )
     return _finish(
         document_id=parsed.document_id,
@@ -277,4 +337,69 @@ def ingest_path(
         parse_quality=parsed.inspect.parse_quality,
         warnings=warnings,
         timer=timer,
+        site_id=meta.site_id if meta else None,
+        project_id=meta.project_id if meta else None,
     )
+
+
+def collect_pdf_paths(path: Path) -> list[Path]:
+    """Un PDF, ou tous les PDF d'un dossier (récursif, dédupliqués)."""
+    path = path.expanduser().resolve()
+    if path.is_file():
+        if path.suffix.lower() != ".pdf":
+            raise ValueError(f"Not a PDF: {path}")
+        return [path]
+    if path.is_dir():
+        found: list[Path] = []
+        seen: set[Path] = set()
+        for candidate in sorted(path.rglob("*")):
+            if not candidate.is_file() or candidate.suffix.lower() != ".pdf":
+                continue
+            resolved = candidate.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            found.append(resolved)
+        if not found:
+            raise FileNotFoundError(f"No PDF found in {path}")
+        return found
+    raise FileNotFoundError(f"File not found: {path}")
+
+
+def ingest_many(
+    paths: list[Path],
+    *,
+    settings: Settings | None = None,
+    skip_extract: bool = False,
+) -> list[IngestResult]:
+    """Ingest une liste de PDF ; une exception n'interrompt pas le lot."""
+    s = settings or load_settings()
+    results: list[IngestResult] = []
+    for index, path in enumerate(paths, start=1):
+        logger.info("Batch ingest %s/%s — %s", index, len(paths), path.name)
+        try:
+            results.append(ingest_path(path, settings=s, skip_extract=skip_extract))
+        except Exception as exc:
+            logger.exception("Batch item failed: %s", path)
+            results.append(
+                IngestResult(
+                    document_id="",
+                    n_chunks=0,
+                    n_extractions=0,
+                    parse_quality="error",
+                    warnings=[],
+                    skipped=True,
+                    skip_reason=str(exc),
+                    error=str(exc),
+                    total_seconds=0.0,
+                )
+            )
+    n_ok = sum(1 for item in results if not item.skipped and not item.error)
+    n_fail = sum(1 for item in results if item.error)
+    logger.info(
+        "Batch done — %s file(s), %s ok, %s failed.",
+        len(paths),
+        n_ok,
+        n_fail,
+    )
+    return results

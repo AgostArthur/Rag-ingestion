@@ -12,6 +12,7 @@ from qdrant_client.models import (
     FieldCondition,
     Filter,
     MatchAny,
+    MatchText,
     MatchValue,
     PayloadSchemaType,
     PointStruct,
@@ -32,9 +33,38 @@ _INDEXED_FIELDS: tuple[tuple[str, PayloadSchemaType], ...] = (
     ("entities", PayloadSchemaType.KEYWORD),
     ("dates", PayloadSchemaType.KEYWORD),
     ("parse_quality", PayloadSchemaType.KEYWORD),
+    ("site_id", PayloadSchemaType.KEYWORD),
+    ("project_id", PayloadSchemaType.KEYWORD),
+    ("text", PayloadSchemaType.TEXT),
+)
+
+_FILTER_KEYS = frozenset(
+    {
+        "document_id",
+        "source_path",
+        "doc_type",
+        "entities",
+        "dates",
+        "heading_path",
+        "parse_quality",
+        "page",
+        "site_id",
+        "project_id",
+    }
 )
 
 _NAMESPACE = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
+
+def ping_qdrant(settings: Settings | None = None) -> tuple[bool, str]:
+    """Health-check HTTP Qdrant (liste des collections)."""
+    s = settings or load_settings()
+    try:
+        client = _client(s)
+        names = [c.name for c in client.get_collections().collections]
+        return True, ",".join(names) if names else "ok"
+    except Exception as exc:
+        return False, str(exc)
 
 
 def _client(settings: Settings) -> QdrantClient:
@@ -168,6 +198,8 @@ def upsert_payloads(
             "parse_quality": item.parse_quality,
             "char_start": chunk.start,
             "char_end": chunk.end,
+            "site_id": item.site_id,
+            "project_id": item.project_id,
         }
         points.append(
             PointStruct(
@@ -190,7 +222,7 @@ def build_filter(filters: dict[str, str]) -> Filter | None:
     """Construit un filtre Qdrant à partir de `clé=valeur` (virgules = MatchAny).
 
     Clés autorisées : document_id, source_path, doc_type, entities, dates,
-    heading_path, parse_quality, page.
+    heading_path, parse_quality, page, site_id, project_id.
 
     Args:
         filters: Mapping clé → valeur brute (page en entier, listes en CSV).
@@ -205,16 +237,7 @@ def build_filter(filters: dict[str, str]) -> Filter | None:
     for key, raw in filters.items():
         if not raw:
             continue
-        if key not in {
-            "document_id",
-            "source_path",
-            "doc_type",
-            "entities",
-            "dates",
-            "heading_path",
-            "parse_quality",
-            "page",
-        }:
+        if key not in _FILTER_KEYS:
             raise ValueError(f"Unknown filter: {key}")
         if key == "page":
             must.append(
@@ -239,6 +262,7 @@ def search_similar(
     *,
     limit: int = 5,
     filters: dict[str, str] | None = None,
+    query_filter: Filter | None = None,
     settings: Settings | None = None,
 ) -> list[dict[str, Any]]:
     """Recherche dense, éventuellement restreinte par le payload.
@@ -248,6 +272,7 @@ def search_similar(
         query_vector: Embedding de la question.
         limit: Nombre max de hits.
         filters: Filtres optionnels (`doc_type`, `entities`, …).
+        query_filter: Filtre Qdrant déjà construit (prioritaire sur `filters`).
         settings: Config ; `.env` si omis.
 
     Returns:
@@ -255,11 +280,11 @@ def search_similar(
     """
     s = settings or load_settings()
     client = _client(s)
-    query_filter = build_filter(filters or {})
+    built = query_filter if query_filter is not None else build_filter(filters or {})
     resp = client.query_points(
         collection_name=collection_name,
         query=query_vector,
-        query_filter=query_filter,
+        query_filter=built,
         limit=limit,
         with_payload=True,
     )
@@ -278,6 +303,48 @@ def search_similar(
                 "doc_type": pl.get("doc_type"),
                 "entities": pl.get("entities") or [],
                 "dates": pl.get("dates") or [],
+                "site_id": pl.get("site_id"),
+                "project_id": pl.get("project_id"),
+                "chunk_id": pl.get("chunk_id"),
             }
         )
     return results
+
+
+def keyword_should_conditions(tokens: list[str]) -> list[FieldCondition]:
+    """Conditions OR : n° dans `entities` / `project_id` / texte du chunk."""
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return []
+    should: list[FieldCondition] = [
+        FieldCondition(key="entities", match=MatchAny(any=tokens)),
+        FieldCondition(key="project_id", match=MatchAny(any=tokens)),
+    ]
+    for token in tokens:
+        should.append(FieldCondition(key="text", match=MatchText(text=token)))
+    return should
+
+
+def build_keyword_filter(
+    tokens: list[str],
+    filters: dict[str, str] | None = None,
+) -> Filter | None:
+    """Filtre hybride : conserve doc_type / site / etc., relâche entities.
+
+    Le n° de projet est cherché dans le payload ET dans le Markdown (MatchText),
+    pour le cas où LangExtract a manqué `project_id`.
+    """
+    base = {
+        k: v
+        for k, v in (filters or {}).items()
+        if k not in {"entities", "project_id"}
+    }
+    must_filter = build_filter(base)
+    should = keyword_should_conditions(tokens)
+    must: list[Any] = list(must_filter.must) if must_filter is not None else []
+    if should:
+        # Nested should is required (top-level `should` would only boost scores).
+        must.append(Filter(should=should))
+    if not must:
+        return None
+    return Filter(must=must)
