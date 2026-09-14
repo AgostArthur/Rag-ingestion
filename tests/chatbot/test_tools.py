@@ -44,6 +44,7 @@ def test_format_hits_includes_source_and_truncates():
             "doc_type": "contrat",
             "heading_path": "Art. 7 Responsabilité",
             "entities": ["ACME"],
+            "contaminants": ["HAM"],
         }
     ]
     out = format_hits(hits, max_chars=50)
@@ -53,6 +54,7 @@ def test_format_hits_includes_source_and_truncates():
     assert "page: 4" in out
     assert "section: Art. 7 Responsabilité" in out
     assert "entities: ACME" in out
+    assert "contaminants: HAM" in out
     assert "…" in out
     assert "A" * 50 in out
     assert "A" * 51 not in out.replace("…", "")
@@ -100,13 +102,15 @@ def test_filters_from_args_skips_blank():
     assert _filters_from_args() == {}
     assert _filters_from_args(doc_type="  ", entities="", document_id="") == {}
     assert _filters_from_args(
-        doc_type="rapport",
+        doc_type="ees_phase_2",
         entities="ACME, Hydro-Québec",
         document_id="abc",
+        contaminants="HAM",
     ) == {
-        "doc_type": "rapport",
+        "doc_type": "ees_phase_2",
         "entities": "ACME, Hydro-Québec",
         "document_id": "abc",
+        "contaminants": "HAM",
     }
 
 

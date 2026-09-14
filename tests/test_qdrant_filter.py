@@ -18,3 +18,16 @@ def test_build_filter_single_and_multi():
 def test_build_filter_empty():
     assert build_filter({}) is None
     assert build_filter({"doc_type": ""}) is None
+
+
+def test_build_filter_contaminants():
+    f = build_filter({"contaminants": "HAM,HAP", "doc_type": "ees_phase_2"})
+    assert f is not None
+    assert len(f.must) == 2
+    first, second = f.must
+    assert first.key == "contaminants"
+    assert isinstance(first.match, MatchAny)
+    assert first.match.any == ["HAM", "HAP"]
+    assert second.key == "doc_type"
+    assert second.match.value == "ees_phase_2"
+

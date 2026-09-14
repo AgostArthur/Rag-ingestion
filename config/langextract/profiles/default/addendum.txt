@@ -1,0 +1,1 @@
+Document de type indéterminé. Extraire title, doc_type, n° de projet, organisations, dates (rôles contract|fieldwork|report uniquement) et location du site s'il est identifiable. Ne pas forcer ees_phase_1 ni ees_phase_2 sauf si le texte l'indique clairement.

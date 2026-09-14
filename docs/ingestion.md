@@ -86,8 +86,9 @@ Paramètres qui changent réellement le comportement d’ingest :
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL LangExtract |
 | `LANGEXTRACT_MODEL` | `nemotron-3-nano:4b` | `model_id` passé à `langextract.extract` |
 | `LANGEXTRACT_TIMEOUT_SECONDS` | `300` | Timeout Ollama |
-| `LANGEXTRACT_PROMPT_FILE` | `config/langextract/prompt.txt` | Schéma d’extraction |
-| `LANGEXTRACT_FEW_SHOTS_FILE` | `config/langextract/few_shots.json` | Exemples d’alignement (alias `LANGEXTRACT_FEW_SHOTS_EXAMPLE`) |
+| `LANGEXTRACT_PROFILES_FILE` | `config/langextract/profiles.json` | Routage des schémas (phase I / II / default) |
+| `LANGEXTRACT_PROMPT_FILE` | `config/langextract/prompt.base.txt` | Repli si `profiles.json` est absent |
+| `LANGEXTRACT_FEW_SHOTS_FILE` | `config/langextract/profiles/default/few_shots.json` | Repli si `profiles.json` est absent |
 | `OCR_LANGUAGE` | `fra+eng` | Langue Tesseract / serveur OCR LiteParse |
 | `OCR_SERVER_URL` | vide | Si vide : Tesseract intégré ; sinon URL d’un serveur OCR |
 | `OCR_HEAVY_RATIO` | `0.5` | Seuil : fraction de pages `needs_ocr` à partir de laquelle `parse_quality = ocr_heavy` |
@@ -226,14 +227,20 @@ Saut possible : `rag-ingest ingest fichier.pdf --skip-extract` (alors `extractio
 
 On passe **tout** le Markdown du document (`parsed.markdown`), pas les chunks un par un. LangExtract voit le rapport entier (lettre, sommaire, tableaux, conclusions). C’est coûteux (souvent plusieurs minutes) mais nécessaire pour trouver un `Projet nº` en page 1 et des dates de forage plus loin.
 
-### 6.2 Schéma (prompt + few-shots)
+### 6.2 Schéma (prompt + few-shots par profil)
 
-Le code ne durcit **aucune** classe Python. Le schéma est 100 % dans :
+Le code ne durcit **aucune** classe Python. Le schéma est 100 % dans `config/langextract/` :
 
-- `config/langextract/prompt.txt`
-- `config/langextract/few_shots.json`
+- `prompt.base.txt` — classes autorisées, ancrage verbatim, règle `project_id` (partagé)
+- `profiles.json` — ordre des profils et motifs sur le **nom de fichier** (puis le premier heading Markdown)
+- `profiles/<id>/addendum.txt` — consigne métier du profil
+- `profiles/<id>/few_shots.json` — exemples d’alignement
 
-Changer de domaine (contrats, factures) = pointer d’autres fichiers via `.env`, sans toucher `extract.py`.
+À l’ingest, `resolve_extract_schema` concatène base + addendum et charge les few-shots du profil. Priorité : `--profile` > nom du PDF > premier heading > `default`. Chaque résolution est loguée (`type=` + `fichier=`) ; un nom sans motif connu déclenche un **warning** et le schéma générique.
+
+Ordre dans `profiles.json` : **ees_phase_2 avant ees_phase_1**, sinon `phase II` serait lu comme `phase I`. Les ids de profil (`--profile`, log `type=`, filtre Qdrant `doc_type`) sont **`ees_phase_1` / `ees_phase_2` / `default`**. Les dossiers restent `profiles/phase_1/` et `profiles/phase_2/`.
+
+Changer de domaine = ajouter un dossier sous `profiles/` et une entrée dans `profiles.json`, sans toucher `extract.py`.
 
 Règle LangExtract : chaque `extraction_text` d’un few-shot doit apparaître **tel quel** comme sous-chaîne du champ `text` de l’exemple (alignement caractère).
 
@@ -244,11 +251,11 @@ Classes actuellement autorisées par le prompt (ÉES / ESA Québec) :
 | `title` | Titre principal | — |
 | `doc_type` | Type de document | `normalized` : `rapport`, `ees_phase_1`, `ees_phase_2`, `contrat`, `facture`, `note`, `guide`, `autre` |
 | `entity` | Personne, org, n° de projet, lieu nommé | `type` : `person`, `org`, `place`, `project_id`, `client`, `firm` ; pour un projet `normalized` = chiffres (`4405`) |
-| `date` | Date mentionnée | `normalized` ISO `YYYY-MM-DD` ; parfois `role` dans les few-shots (`report`) |
-| `topic` | Thème (phase, contaminants, reco…) | — |
-| `location` | Adresse, lot, ville | `type` : `address`, `lot`, `region`, `city`, … |
+| `date` | Date mentionnée | `normalized` ISO `YYYY-MM-DD` ; `role` : `contract` \| `fieldwork` \| `report` |
+| `topic` | Thème (phase, reco…) ; contamination **détectée** | `kind=contaminant` → persisté dans `contaminants` (document), pas seulement dans `topics` |
+| `location` | Adresse et lot du site analysé | `type` : `address`, `lot` |
 
-Consigne métier importante : un n° de projet (`Projet nº`, `No/Réf.`) doit être extrait en `entity` / `type=project_id` avec `extraction_text` = les **chiffres** tels qu’écrits (`2259`, `4405`), pas une année (`2019`). Les few-shots incluent des exemples ÉES (4405, 2259) en plus d’un exemple générique « rapport d’audit ».
+Consigne métier importante : un n° de projet (`Projet nº`, `No/Réf.`) doit être extrait en `entity` / `type=project_id` avec `extraction_text` = les **chiffres** tels qu’écrits (`2259`, `4405`), pas une année (`2019`). Les few-shots phase II illustrent 4405 / 2259 ; phase I a ses propres exemples ; le profil `default` garde un rapport d’audit générique.
 
 ### 6.3 Appel
 
@@ -320,15 +327,16 @@ On prend le premier `doc_type` dont le label ( `attributes.normalized` si prése
 
 Tous les n° ainsi obtenus sont dédupliqués (casse ignorée) puis **préfixés** dans `entities` de **chaque** chunk. Même un chunk de conclusions qui ne contient pas « 4405 » dans son texte portera `entities: ["4405", …]`. C’est ce qui rend le filtre Qdrant `entities=4405` utilisable sur tout le rapport.
 
-Les `project_id` **non ancrés** (`start is None`) sont quand même recopiés au niveau document. Les autres entités non ancrées (`Ghost` sans intervalle) **ne sont pas** copiées : on refuse de polluer tous les chunks avec une invention non localisée, sauf le n° de projet (identifiant du dossier).
+Les `project_id` **non ancrés** (`start is None`) sont quand même recopiés au niveau document. Les contaminations détectées (`topic` + `kind=contaminant`) suivent la même règle : liste unique recopiée sur **tous** les chunks (`contaminants`), et **pas** mélangées dans `topics`. Les autres entités non ancrées (`Ghost` sans intervalle) **ne sont pas** copiées.
 
 ### 7.3 Niveau local (seulement si recouvrement)
 
 | Classe | Champ payload | Label |
 |---|---|---|
 | `entity` (hors project_id) | `entities` | `normalized` ou texte |
-| `date` | `dates` | idem |
-| `topic` | `topics` | idem |
+| `date` | `dates` | idem (rôle **non** recopié ici ; voir catalog `events`) |
+| `topic` (hors contaminant) | `topics` | idem |
+| `topic` + `kind=contaminant` | `contaminants` | niveau document, tous les chunks |
 | `location` | **aucun** | extraite par LangExtract, **ignorée** à l’alignement |
 
 Déduplication par label minuscule à l’intérieur d’un chunk.
@@ -387,8 +395,11 @@ Distance : **cosine**. Un point = un chunk.
 | `entities` | KEYWORD |
 | `dates` | KEYWORD |
 | `parse_quality` | KEYWORD |
+| `site_id` | KEYWORD |
+| `project_id` | KEYWORD |
+| `contaminants` | KEYWORD |
 
-`topics` est **stocké** dans le payload mais **n’a pas** d’index dédié dans `_INDEXED_FIELDS` (filtre `topics` non exposé dans `build_filter`).
+`topics` est **stocké** dans le payload mais **n’a pas** d’index dédié dans `_INDEXED_FIELDS` (filtre `topics` non exposé dans `build_filter`). Les contaminations détectées se filtrent via `contaminants`.
 
 ### 9.2 Ré-ingest : delete puis upsert
 
@@ -424,6 +435,9 @@ chunk_id         "{document_id}:{chunk_index}"
 parse_quality    ok | ocr_partial | ocr_heavy
 char_start       offset début dans le Markdown
 char_end         offset fin dans le Markdown
+site_id          lot:… ou addr:… ou null
+project_id       n° de projet principal ou null
+contaminants     liste de str (contaminations détectées, niveau document)
 ```
 
 Ce JSON LangExtract **n’est pas** dans Qdrant. Il reste dans `data/extractions/{id}.jsonl`.
@@ -445,7 +459,7 @@ step_seconds { parse, chunk, langextract, align, embed, qdrant }
 total_seconds
 ```
 
-Ce n’est **pas** encore la fiche métier (lot cadastral, lat/lon, dates typées `report` vs `fieldwork`). C’est un journal d’ingest + pointeurs vers les artefacts.
+Quand LangExtract a tourné, `_write_parent` recopie aussi l’identité catalog : `site_id`, `project_id(s)`, `title`, `doc_type`, firme/client, adresse/lot, `report_date`, `contaminants`, `events` (`contract` / `fieldwork` / `report`). La vérité métier reste SQLite (`catalog.sqlite`) ; ce JSON est un journal d’ingest + copie locale.
 
 Si l’ingest est skippé (Markdown/chunks vides), cette fiche n’est **pas** écrite par `_write_parent` (sortie anticipée dans `ingest_path`).
 
@@ -524,14 +538,17 @@ Cela ne retourne **que** des chunks dont le payload `entities` contient exacteme
 | `src/rag_ingestion/config.py` | `.env` + défauts |
 | `src/rag_ingestion/parse.py` | SHA-256, LiteParse inspect/parse, `page_for_span` |
 | `src/rag_ingestion/chunk.py` | Fenêtres, tableaux, `heading_path` |
-| `src/rag_ingestion/extract.py` | Prompt, few-shots, Ollama, JSONL/HTML |
+| `src/rag_ingestion/extract.py` | Chargement prompt/few-shots, Ollama, JSONL/HTML |
+| `src/rag_ingestion/extract_profile.py` | Routage du profil LangExtract (nom de fichier / heading / `--profile`) |
 | `src/rag_ingestion/align.py` | Recouvrement, `project_id` global, payload |
 | `src/rag_ingestion/embed.py` | FastEmbed, dimension, query vs passage |
 | `src/rag_ingestion/qdrant_store.py` | Collection, indexes, delete, upsert, filtres |
 | `src/rag_ingestion/retrieve.py` | Façade embed + search (CLI et chatbot) |
 | `src/rag_ingestion/models.py` | Dataclasses |
-| `config/langextract/prompt.txt` | Schéma d’extraction |
-| `config/langextract/few_shots.json` | Exemples (audit générique + ÉES 4405 / 2259) |
+| `config/langextract/prompt.base.txt` | Socle du prompt (classes, `project_id`) |
+| `config/langextract/profiles.json` | Routage phase I / II / default |
+| `config/langextract/profiles/*/addendum.txt` | Consigne métier du profil |
+| `config/langextract/profiles/*/few_shots.json` | Exemples du profil |
 
 ---
 
@@ -542,10 +559,12 @@ docker compose up -d
 # Ollama : modèle LANGEXTRACT_MODEL déjà pull
 
 rag-ingest ingest chemin/vers/rapport.pdf
+rag-ingest ingest chemin/vers/rapport.pdf --profile ees_phase_1
 rag-ingest ingest chemin/vers/rapport.pdf --skip-extract
 
 rag-ingest query "contamination des sols projet 4405" --limit 5
 rag-ingest query "contamination" --filter entities=4405 --filter doc_type=ees_phase_2
+rag-ingest query "HAM" --filter contaminants=HAM --filter doc_type=ees_phase_2
 ```
 
 Après modification du prompt LangExtract, des few-shots, ou de `align.py` (recopie des `project_id`), **ré-ingérer** les PDF concernés : l’ancien payload Qdrant ne se met pas à jour tout seul.
@@ -658,6 +677,7 @@ Règle de fusion : après normalisation du lot (ou de l’adresse), `INSERT … 
 | `source_path` | Chemin du PDF. |
 | `parse_quality` | `ok` / `ocr_partial` / `ocr_heavy`. |
 | `report_date` | Date de **remise** du rapport (`role=report`), si extraite. |
+| `contaminants` | JSON des contaminations **détectées** (`topic` + `kind=contaminant`). |
 | `ingested_at` | Horodatage d’ingest. |
 
 2259 et 4405 → **deux** lignes `documents`, **un** `site`.
@@ -672,7 +692,7 @@ Ré-ingest du même PDF : `ON CONFLICT(document_id) DO UPDATE` (symétrique du `
 | `document_id` | FK. |
 | `site_id` | FK (dénormalisé pour `GET /sites/{id}/timeline` sans jointure lourde). |
 | `iso_date` | `YYYY-MM-DD`. |
-| `role` | `report` \| `fieldwork` \| `phase1` \| `sampling` \| … — **obligatoire**. Une date sans rôle est inutilisable en timeline (mélange « 3 jan 2024 » et « 17 août 2019 »). |
+| `role` | `contract` \| `fieldwork` \| `report` — **obligatoire** pour la timeline. Alias d’ingest : `analysis` / `sampling` / `phase1` → `fieldwork`. Les dates `other` (entrevues, historique) ne sont pas persistées. |
 | `label` | Libellé optionnel (ex. « Campagne de forages »). |
 
 Sans `role` dans LangExtract (prompt + few-shots), cette table n’a pas de sens. C’est un prérequis d’extraction, pas seulement de SQL.

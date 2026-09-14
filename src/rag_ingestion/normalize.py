@@ -11,14 +11,27 @@ _ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _PROJECT_TOKEN_RE = re.compile(r"\b(\d{3,8})\b")
 _DIGITS_RE = re.compile(r"\d+")
 
-DATE_ROLES = frozenset(
-    {"report", "fieldwork", "phase1", "sampling", "unknown"}
-)
+DATE_ROLES = frozenset({"contract", "fieldwork", "report", "unknown"})
+TIMELINE_ROLES = frozenset({"contract", "fieldwork", "report"})
 
+_ROLE_ALIASES = {
+    "analysis": "fieldwork",
+    "sampling": "fieldwork",
+    "phase1": "fieldwork",
+}
+
+_CONTRACT_HINTS = (
+    "contrat",
+    "mandat",
+    "contract",
+)
 _FIELDWORK_HINTS = (
+    "analyse",
     "forage",
     "forages",
     "campagne",
+    "visite",
+    "reconnaissance",
     "prélèvement",
     "prelevement",
     "échantillonnage",
@@ -121,12 +134,18 @@ def iso_date(text: str | None) -> str | None:
 
 
 def infer_date_role(role: str | None, label: str) -> str:
-    """Rôle de date : attribut LangExtract, sinon indices lexicaux, sinon `unknown`."""
+    """Rôle de date : attribut LangExtract, sinon indices lexicaux, sinon `unknown`.
+
+    Alias acceptés : `analysis` / `sampling` / `phase1` → `fieldwork`.
+    """
     if isinstance(role, str):
         key = role.strip().lower()
-        if key in DATE_ROLES and key != "unknown":
-            return key
+        mapped = _ROLE_ALIASES.get(key, key)
+        if mapped in DATE_ROLES and mapped != "unknown":
+            return mapped
     hay = fold_ascii(label)
+    if any(hint in hay for hint in _CONTRACT_HINTS):
+        return "contract"
     if any(hint in hay for hint in _FIELDWORK_HINTS):
         return "fieldwork"
     if any(hint in hay for hint in _REPORT_HINTS):

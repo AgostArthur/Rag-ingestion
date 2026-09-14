@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from rag_ingestion.align import _doc_project_ids, _label
+from rag_ingestion.align import _doc_contaminants, _doc_project_ids, _label
 from rag_ingestion.models import (
     ChunkPayload,
     DocumentMeta,
@@ -10,6 +10,7 @@ from rag_ingestion.models import (
     TypedEvent,
 )
 from rag_ingestion.normalize import (
+    TIMELINE_ROLES,
     infer_date_role,
     iso_date,
     normalize_address,
@@ -63,6 +64,8 @@ def _collect_events(extractions: list[GroundedExtraction]) -> list[TypedEvent]:
             role_raw if isinstance(role_raw, str) else None,
             ext.extraction_text or label,
         )
+        if role not in TIMELINE_ROLES:
+            continue
         key = (parsed, role)
         if key in seen:
             continue
@@ -143,12 +146,14 @@ def build_document_meta(
         site_id=site_id,
         report_date=report_date,
         events=events,
+        contaminants=_doc_contaminants(extractions),
     )
 
 
 def stamp_payloads(payloads: list[ChunkPayload], meta: DocumentMeta) -> list[ChunkPayload]:
-    """Recopie `site_id` / `project_id` sur chaque chunk (filtre Qdrant)."""
+    """Recopie `site_id` / `project_id` / `contaminants` sur chaque chunk."""
     for item in payloads:
         item.site_id = meta.site_id
         item.project_id = meta.project_id
+        item.contaminants = list(meta.contaminants)
     return payloads

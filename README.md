@@ -87,7 +87,7 @@ Changer `EMBED_MODEL` dans `.env` (dimension lue chez FastEmbed). Ré-ingérer a
 
 Si le nom n’est pas dans FastEmbed, repli `intfloat/multilingual-e5-large`.
 
-Schéma LangExtract : `config/langextract/prompt.txt` + `few_shots.json` (`LANGEXTRACT_PROMPT_FILE`, `LANGEXTRACT_FEW_SHOTS_FILE`). Chaque `extraction_text` de few-shot doit apparaître tel quel dans `text`. Pour les ÉES : `location` (site étudié), `date.role` (`report`  `fieldwork`), `firm` / `client` / `project_id`.
+Schéma LangExtract : `config/langextract/profiles.json` (prompt de base + addendum + few-shots par profil). Le nom du PDF choisit le profil (motifs dans `profiles.json`) ; sinon `default` (warning). Chaque ingest logue `type=` et `fichier=`. L’identifiant est le même que `doc_type` Qdrant : `ees_phase_1` / `ees_phase_2`. Override : `rag-ingest ingest fichier.pdf --profile ees_phase_1`. Chaque `extraction_text` de few-shot doit apparaître tel quel dans `text`.
 
 Détail du pipeline : `[docs/ingestion.md](docs/ingestion.md)`.
 

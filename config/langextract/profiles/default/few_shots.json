@@ -1,0 +1,35 @@
+[
+  {
+    "text": "# Rapport d'audit — Site Laval\n\nDocument préparé par Hydro-Québec le 12 mars 2024.\nAdresse du site : 800, boulevard des Laurentides, Laval.\nSujet : contamination des sols.",
+    "extractions": [
+      {
+        "extraction_class": "title",
+        "extraction_text": "Rapport d'audit — Site Laval"
+      },
+      {
+        "extraction_class": "doc_type",
+        "extraction_text": "Rapport d'audit",
+        "attributes": { "normalized": "rapport" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Hydro-Québec",
+        "attributes": { "type": "org" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "12 mars 2024",
+        "attributes": { "normalized": "2024-03-12", "role": "report" }
+      },
+      {
+        "extraction_class": "topic",
+        "extraction_text": "contamination des sols"
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "800, boulevard des Laurentides, Laval",
+        "attributes": { "type": "address" }
+      }
+    ]
+  }
+]

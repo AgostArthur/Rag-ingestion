@@ -21,8 +21,9 @@ DEFAULT_EMBED_DIM = 1024
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_LANGEXTRACT_MODEL = "nemotron-3-nano:4b"
 DEFAULT_LANGEXTRACT_TIMEOUT_SECONDS = 300.0
-DEFAULT_LANGEXTRACT_PROMPT_FILE = "config/langextract/prompt.txt"
-DEFAULT_LANGEXTRACT_FEW_SHOTS_FILE = "config/langextract/few_shots.json"
+DEFAULT_LANGEXTRACT_PROMPT_FILE = "config/langextract/prompt.base.txt"
+DEFAULT_LANGEXTRACT_FEW_SHOTS_FILE = "config/langextract/profiles/default/few_shots.json"
+DEFAULT_LANGEXTRACT_PROFILES_FILE = "config/langextract/profiles.json"
 DEFAULT_OCR_LANGUAGE = "fra+eng"
 DEFAULT_OCR_HEAVY_RATIO = 0.5
 DEFAULT_CHUNK_SIZE_CHARS = 2400
@@ -103,6 +104,7 @@ class Settings:
     ingest_poll_seconds: int = 10
     ingest_skip_existing: bool = True
     ingest_skip_extract: bool = False
+    langextract_profiles_file: Path | None = None
 
     @property
     def parsed_dir(self) -> Path:
@@ -178,6 +180,10 @@ def load_settings() -> Settings:
             os.getenv("LANGEXTRACT_FEW_SHOTS_FILE", "")
             or os.getenv("LANGEXTRACT_FEW_SHOTS_EXAMPLE", ""),
             DEFAULT_LANGEXTRACT_FEW_SHOTS_FILE,
+        ),
+        langextract_profiles_file=_resolve_path(
+            os.getenv("LANGEXTRACT_PROFILES_FILE", ""),
+            DEFAULT_LANGEXTRACT_PROFILES_FILE,
         ),
         ocr_language=os.getenv("OCR_LANGUAGE", DEFAULT_OCR_LANGUAGE).strip() or DEFAULT_OCR_LANGUAGE,
         ocr_server_url=ocr_server,

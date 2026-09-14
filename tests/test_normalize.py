@@ -37,6 +37,12 @@ def test_iso_date_and_roles():
     assert iso_date("2023-01-03") == "2023-01-03"
     assert iso_date("3 janvier 2023") is None
     assert infer_date_role("report", "3 janvier 2023") == "report"
+    assert infer_date_role("contract", "2 mars 2021") == "contract"
+    assert infer_date_role("analysis", "17 août 2019") == "fieldwork"
+    assert infer_date_role("fieldwork", "17 août 2019") == "fieldwork"
+    assert infer_date_role(None, "Date du contrat") == "contract"
+    assert infer_date_role(None, "Date de l'analyse") == "fieldwork"
     assert infer_date_role(None, "Campagne de forages") == "fieldwork"
     assert infer_date_role(None, "Date du rapport") == "report"
+    assert infer_date_role("other", "Entrevues avec le propriétaire") == "unknown"
     assert infer_date_role(None, "quelque part") == "unknown"

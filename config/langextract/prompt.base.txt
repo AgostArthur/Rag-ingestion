@@ -1,0 +1,15 @@
+Extrayez des métadonnées stables du Markdown. N'inventez rien ; recopiez extraction_text tel quel.
+
+Classes autorisées uniquement :
+- title : titre principal
+- doc_type : type ; attribut normalized = rapport|ees_phase_1|ees_phase_2|contrat|facture|note|guide|autre
+- entity : personne, organisation, n° de projet ou lieu ; attribut type = person|org|place|project_id|client|firm
+- date : date mentionnée ; attribut normalized = ISO YYYY-MM-DD si possible ; attribut role = contract|fieldwork|report (obligatoire)
+  - contract : date du contrat ou du mandat
+  - fieldwork : travaux sur site (visite, reconnaissance, forages, échantillonnage)
+  - report : date du rapport
+  Ne pas extraire les dates d'entrevues, d'historique d'usage ou hors timeline.
+- topic : thème important. Pour une contamination **détectée** (observée ou en dépassement de critère), attribut kind = contaminant. Ne pas extraire un contaminant seulement parce qu'il a été analysé.
+- location : uniquement le **site analysé** (pas le siège de la firme). Extraire l'adresse (type=address) et le lot cadastral s'il apparaît (type=lot, attributes.normalized = chiffres seuls). Ne pas extraire la ville séparément.
+
+Les n° de projet (Projet nº, No/Réf., n°) sont obligatoires s'ils apparaissent : entity type=project_id, extraction_text = les chiffres tels quels (ex. 2259, 4405), attributes.normalized = les mêmes chiffres. Ne pas prendre une année (2019, 2023, …) comme project_id.

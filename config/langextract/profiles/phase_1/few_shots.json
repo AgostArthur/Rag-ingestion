@@ -1,0 +1,179 @@
+[
+  {
+    "text": "# Évaluation environnementale de site phase I\n\nProjet nº : 3188\nFirme : Sol-Expert. Client : Ville de Laval.\nPropriété sise au 12, rue Industrielle, Laval, Québec (lot 1 234 567).\nDate du contrat : 2 mars 2021.\nDate de l'analyse : 28 avril 2021 (visite du site).\nDate du rapport : 15 mai 2021.\nEntrevues avec le propriétaire : 30 avril 2021.\nUsage historique de station-service.\nReconnaissance : taches d'hydrocarbures au sol, évents de réservoir, amiante dans les calorifuges.\nConclusion : hydrocarbures et amiante détectés visuellement. Aucun forage ni analyse de laboratoire.",
+    "extractions": [
+      {
+        "extraction_class": "title",
+        "extraction_text": "Évaluation environnementale de site phase I"
+      },
+      {
+        "extraction_class": "doc_type",
+        "extraction_text": "Évaluation environnementale de site phase I",
+        "attributes": { "normalized": "ees_phase_1" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "3188",
+        "attributes": { "type": "project_id", "normalized": "3188" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Sol-Expert",
+        "attributes": { "type": "firm" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Ville de Laval",
+        "attributes": { "type": "client" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "2 mars 2021",
+        "attributes": { "normalized": "2021-03-02", "role": "contract" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "28 avril 2021",
+        "attributes": { "normalized": "2021-04-28", "role": "fieldwork" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "15 mai 2021",
+        "attributes": { "normalized": "2021-05-15", "role": "report" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "12, rue Industrielle, Laval, Québec",
+        "attributes": { "type": "address" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "lot 1 234 567",
+        "attributes": { "type": "lot", "normalized": "1234567" }
+      },
+      {
+        "extraction_class": "topic",
+        "extraction_text": "hydrocarbures",
+        "attributes": { "kind": "contaminant" }
+      },
+      {
+        "extraction_class": "topic",
+        "extraction_text": "amiante",
+        "attributes": { "kind": "contaminant" }
+      }
+    ]
+  },
+  {
+    "text": "# ÉES phase I\n\nGéo-Conseil — Projet nº : 9012\nClient : Les Immeubles du Moulin.\n45, rang du Moulin, L'Assomption, Québec, lot 5 678 901.\nDate du contrat : 15 juillet 2020.\nDate de l'analyse : 10 septembre 2020 (reconnaissance du site).\nDate du rapport : 22 septembre 2020.\nEntrevues : 12 septembre 2020, ancien occupant, confirme des déversements d'huile usée.\nRevue des registres : atelier de mécanique, 1972–1998.\nÉvaluation : huile usée détectée (déversements) ; aucune analyse de laboratoire n'a été réalisée.",
+    "extractions": [
+      {
+        "extraction_class": "title",
+        "extraction_text": "ÉES phase I"
+      },
+      {
+        "extraction_class": "doc_type",
+        "extraction_text": "ÉES phase I",
+        "attributes": { "normalized": "ees_phase_1" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "9012",
+        "attributes": { "type": "project_id", "normalized": "9012" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Géo-Conseil",
+        "attributes": { "type": "firm" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Les Immeubles du Moulin",
+        "attributes": { "type": "client" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "15 juillet 2020",
+        "attributes": { "normalized": "2020-07-15", "role": "contract" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "10 septembre 2020",
+        "attributes": { "normalized": "2020-09-10", "role": "fieldwork" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "22 septembre 2020",
+        "attributes": { "normalized": "2020-09-22", "role": "report" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "45, rang du Moulin, L'Assomption, Québec",
+        "attributes": { "type": "address" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "lot 5 678 901",
+        "attributes": { "type": "lot", "normalized": "5678901" }
+      },
+      {
+        "extraction_class": "topic",
+        "extraction_text": "huile usée",
+        "attributes": { "kind": "contaminant" }
+      }
+    ]
+  },
+  {
+    "text": "# Évaluation environnementale de site — phase I\n\nProjet nº : 7741. Firme : Terra-Nord. Client : Fiducie Saint-Laurent.\nTerrain vacant, 88, chemin des Érables, Saint-Jérôme (lot 6 112 008).\nDate du contrat : 10 janvier 2022.\nDate de l'analyse : 18 février 2022 (visite du site).\nDate du rapport : 4 mars 2022.\nReconnaissance : aucun indice de déversement, pas de cuve ni de remblai suspect.\nÉvaluation : aucune contamination détectée.",
+    "extractions": [
+      {
+        "extraction_class": "title",
+        "extraction_text": "Évaluation environnementale de site — phase I"
+      },
+      {
+        "extraction_class": "doc_type",
+        "extraction_text": "phase I",
+        "attributes": { "normalized": "ees_phase_1" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "7741",
+        "attributes": { "type": "project_id", "normalized": "7741" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Terra-Nord",
+        "attributes": { "type": "firm" }
+      },
+      {
+        "extraction_class": "entity",
+        "extraction_text": "Fiducie Saint-Laurent",
+        "attributes": { "type": "client" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "10 janvier 2022",
+        "attributes": { "normalized": "2022-01-10", "role": "contract" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "18 février 2022",
+        "attributes": { "normalized": "2022-02-18", "role": "fieldwork" }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "4 mars 2022",
+        "attributes": { "normalized": "2022-03-04", "role": "report" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "88, chemin des Érables, Saint-Jérôme",
+        "attributes": { "type": "address" }
+      },
+      {
+        "extraction_class": "location",
+        "extraction_text": "lot 6 112 008",
+        "attributes": { "type": "lot", "normalized": "6112008" }
+      }
+    ]
+  }
+]

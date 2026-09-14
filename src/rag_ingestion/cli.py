@@ -88,6 +88,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
                 path,
                 settings=settings,
                 skip_extract=args.skip_extract,
+                extract_profile=args.profile,
             )
         except Exception as exc:
             logger.exception("Failed ingesting %s", path)
@@ -188,6 +189,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip LangExtract (chunks + embeddings only)",
     )
+    ingest.add_argument(
+        "--profile",
+        default=None,
+        metavar="ID",
+        help="LangExtract profile (ees_phase_1, ees_phase_2, default). "
+        "Same id as Qdrant filter doc_type. Overrides filename detection.",
+    )
     ingest.set_defaults(func=cmd_ingest)
 
     query = sub.add_parser("query", help="Dense search with payload filters")
@@ -197,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="key=value",
-        help="Payload filter (doc_type, entities, dates, document_id, page, site_id, project_id). Repeatable.",
+        help="Payload filter (doc_type, entities, dates, document_id, page, site_id, project_id, contaminants). Repeatable.",
     )
     query.add_argument("--limit", type=int, default=5)
     query.set_defaults(func=cmd_query)

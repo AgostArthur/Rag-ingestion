@@ -127,3 +127,34 @@ def test_numeric_entity_is_treated_as_project_id_but_year_is_not():
     )
     assert payloads[0].entities == ["2259", "2019"]
     assert payloads[1].entities == ["2259"]
+
+
+def test_contaminants_are_copied_to_every_chunk_and_not_mixed_into_topics():
+    chunks = [
+        _chunk(0, 0, 50, "page titre"),
+        _chunk(1, 50, 100, "HAM au forage F-3"),
+    ]
+    extractions = [
+        GroundedExtraction(
+            extraction_id="c1",
+            extraction_class="topic",
+            extraction_text="HAM",
+            start=60,
+            end=63,
+            attributes={"kind": "contaminant"},
+        ),
+        GroundedExtraction(
+            extraction_id="t1",
+            extraction_class="topic",
+            extraction_text="recommandation",
+            start=70,
+            end=84,
+        ),
+    ]
+    payloads = align_extractions(
+        chunks, extractions, source_path="x", parse_quality="ok"
+    )
+    assert payloads[0].contaminants == ["HAM"]
+    assert payloads[1].contaminants == ["HAM"]
+    assert payloads[0].topics == []
+    assert payloads[1].topics == ["recommandation"]

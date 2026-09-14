@@ -11,6 +11,7 @@ from typing import Any
 
 from rag_ingestion.config import Settings, load_settings
 from rag_ingestion.models import DocumentMeta
+from rag_ingestion.normalize import TIMELINE_ROLES
 from rag_ingestion.normalize import address_key
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,7 @@ CREATE TABLE IF NOT EXISTS documents (
     source_path TEXT,
     parse_quality TEXT,
     report_date TEXT,
+    contaminants TEXT,
     ingested_at TEXT NOT NULL,
     FOREIGN KEY (site_id) REFERENCES sites(site_id)
 );
@@ -78,9 +80,17 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, name: str, decl: str) -> None:
+    """Ajoute une colonne absente (bases SQLite déjà créées)."""
+    cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    if name not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Crée les tables si besoin."""
+    """Crée les tables si besoin et complète les colonnes ajoutées plus tard."""
     conn.executescript(_SCHEMA)
+    _ensure_column(conn, "documents", "contaminants", "TEXT")
     conn.commit()
 
 
@@ -188,8 +198,8 @@ def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -
             """
             INSERT INTO documents (
                 document_id, project_id, project_ids, title, doc_type, firm, client,
-                site_id, source_path, parse_quality, report_date, ingested_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                site_id, source_path, parse_quality, report_date, contaminants, ingested_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(document_id) DO UPDATE SET
                 project_id = excluded.project_id,
                 project_ids = excluded.project_ids,
@@ -201,6 +211,7 @@ def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -
                 source_path = excluded.source_path,
                 parse_quality = excluded.parse_quality,
                 report_date = excluded.report_date,
+                contaminants = excluded.contaminants,
                 ingested_at = excluded.ingested_at
             """,
             (
@@ -215,11 +226,14 @@ def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -
                 meta.source_path,
                 meta.parse_quality,
                 meta.report_date,
+                json.dumps(meta.contaminants, ensure_ascii=False),
                 _now(),
             ),
         )
         conn.execute("DELETE FROM events WHERE document_id = ?", (meta.document_id,))
         for event in meta.events:
+            if event.role not in TIMELINE_ROLES:
+                continue
             conn.execute(
                 "INSERT INTO events (document_id, site_id, iso_date, role, label) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -263,6 +277,9 @@ def _document_dict(row: sqlite3.Row, site: sqlite3.Row | None = None) -> dict[st
         "source_path": row["source_path"],
         "parse_quality": row["parse_quality"],
         "report_date": row["report_date"],
+        "contaminants": _parse_project_ids(
+            row["contaminants"] if "contaminants" in row.keys() else None
+        ),
         "ingested_at": row["ingested_at"],
     }
     if site is not None:
@@ -384,10 +401,13 @@ def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[di
     conn = connect(path)
     try:
         ensure_schema(conn)
+        roles = tuple(sorted(TIMELINE_ROLES))
+        placeholders = ",".join("?" * len(roles))
         rows = conn.execute(
             "SELECT id, document_id, site_id, iso_date, role, label "
-            "FROM events WHERE site_id = ? ORDER BY iso_date, id",
-            (site_id,),
+            f"FROM events WHERE site_id = ? AND role IN ({placeholders}) "
+            "ORDER BY iso_date, id",
+            (site_id, *roles),
         ).fetchall()
         return [
             {

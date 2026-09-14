@@ -1,0 +1,39 @@
+{
+  "default": "default",
+  "base_prompt": "prompt.base.txt",
+  "profiles": [
+    {
+      "id": "ees_phase_2",
+      "addendum": "profiles/phase_2/addendum.txt",
+      "few_shots": "profiles/phase_2/few_shots.json",
+      "filename": [
+        "phase[\\s_-]*(2|ii)(?!i)",
+        "ees[\\s_-]*(2|ii)(?!i)",
+        "esa[\\s_-]*(2|ii)(?!i)"
+      ],
+      "heading": [
+        "phase[\\s_-]*(2|ii)(?!i)",
+        "ees[\\s_-]*(2|ii)(?!i)"
+      ]
+    },
+    {
+      "id": "ees_phase_1",
+      "addendum": "profiles/phase_1/addendum.txt",
+      "few_shots": "profiles/phase_1/few_shots.json",
+      "filename": [
+        "phase[\\s_-]*(1|i)(?!i)",
+        "ees[\\s_-]*(1|i)(?!i)",
+        "esa[\\s_-]*(1|i)(?!i)"
+      ],
+      "heading": [
+        "phase[\\s_-]*(1|i)(?!i)",
+        "ees[\\s_-]*(1|i)(?!i)"
+      ]
+    },
+    {
+      "id": "default",
+      "addendum": "profiles/default/addendum.txt",
+      "few_shots": "profiles/default/few_shots.json"
+    }
+  ]
+}
