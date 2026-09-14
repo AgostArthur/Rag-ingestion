@@ -2,7 +2,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from rag_ingestion.config import Settings
-from rag_ingestion.retrieve import search
+from rag_ingestion.retrieve import lexical_tokens_for_search, search
+
+
+def test_lexical_tokens_keep_client_and_drop_stopwords():
+    tokens = lexical_tokens_for_search("Quel est le nom du client")
+    assert "client" in [t.lower() for t in tokens]
+    assert "nom" not in [t.lower() for t in tokens]
+    assert "quel" not in [t.lower() for t in tokens]
 
 
 def _settings(**overrides: object) -> Settings:
@@ -75,3 +82,35 @@ def test_search_default_limit_and_no_filters(monkeypatch):
     _, kwargs = fake_similar.call_args
     assert kwargs["limit"] == 5
     assert kwargs["filters"] is None
+
+
+def test_search_prefetch_queries_more_then_returns_limit(monkeypatch):
+    captured: dict = {}
+
+    def fake_similar(collection, vector, *, limit=5, filters=None, settings=None, **kwargs):
+        captured["limit"] = limit
+        return [
+            {"chunk_id": f"c{i}", "score": 1.0 - i * 0.01, "text": str(i)}
+            for i in range(12)
+        ]
+
+    monkeypatch.setattr("rag_ingestion.retrieve.embed_query", lambda *a, **k: [1.0])
+    monkeypatch.setattr("rag_ingestion.retrieve.search_similar", fake_similar)
+
+    hits = search("q", limit=3, prefetch=12, settings=_settings())
+    assert captured["limit"] == 12
+    assert len(hits) == 3
+
+
+def test_search_score_threshold_drops_weak_hits(monkeypatch):
+    def fake_similar(collection, vector, *, limit=5, filters=None, settings=None, **kwargs):
+        return [
+            {"chunk_id": "hi", "score": 0.91, "text": "ok"},
+            {"chunk_id": "lo", "score": 0.12, "text": "noise"},
+        ]
+
+    monkeypatch.setattr("rag_ingestion.retrieve.embed_query", lambda *a, **k: [1.0])
+    monkeypatch.setattr("rag_ingestion.retrieve.search_similar", fake_similar)
+
+    hits = search("q", limit=5, score_threshold=0.5, settings=_settings())
+    assert [h["chunk_id"] for h in hits] == ["hi"]

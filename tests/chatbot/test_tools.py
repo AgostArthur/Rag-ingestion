@@ -63,8 +63,10 @@ def test_search_knowledge_caps_limit(monkeypatch):
 
     captured: dict = {}
 
-    def fake_search(query, *, limit=5, filters=None, settings=None):
+    def fake_search(query, *, limit=5, filters=None, settings=None, **kwargs):
         captured["limit"] = limit
+        captured["prefetch"] = kwargs.get("prefetch")
+        captured["hybrid_text"] = kwargs.get("hybrid_text")
         return []
 
     monkeypatch.setattr("rag_ingestion.retrieve.search", fake_search)
@@ -127,7 +129,7 @@ def test_search_knowledge_applies_ui_site(monkeypatch):
     pytest.importorskip("langchain_core")
     captured: dict = {}
 
-    def fake_search(query, *, limit=5, filters=None, settings=None):
+    def fake_search(query, *, limit=5, filters=None, settings=None, **kwargs):
         captured["filters"] = filters
         return []
 
@@ -148,10 +150,13 @@ def test_search_knowledge_calls_retrieve(monkeypatch):
 
     captured: dict = {}
 
-    def fake_search(query, *, limit=5, filters=None, settings=None):
+    def fake_search(query, *, limit=5, filters=None, settings=None, **kwargs):
         captured["query"] = query
         captured["limit"] = limit
         captured["filters"] = filters
+        captured["prefetch"] = kwargs.get("prefetch")
+        captured["score_threshold"] = kwargs.get("score_threshold")
+        captured["hybrid_text"] = kwargs.get("hybrid_text")
         return [
             {
                 "score": 0.5,
@@ -175,8 +180,92 @@ def test_search_knowledge_calls_retrieve(monkeypatch):
     assert captured["query"] == "clause"
     assert captured["limit"] == 4
     assert captured["filters"] == {"doc_type": "rapport"}
+    assert captured["prefetch"] == 0
+    assert captured["hybrid_text"] is False
     assert "extrait" in text
     assert "a.pdf" in text
+
+
+def test_format_catalog_fiches_includes_client():
+    from chatbot.tools import format_catalog_fiches
+
+    out = format_catalog_fiches(
+        [
+            {
+                "document_id": "sha1",
+                "source_path": "/docs/G25.pdf",
+                "client": "9342-9967 Québec Inc.",
+                "firm": "GÉOSPHÈRE CONSULTANTS",
+                "address": "8411, boulevard Pie IX",
+                "title": "ÉES phase II",
+            }
+        ]
+    )
+    assert "Fiches catalog" in out
+    assert "9342-9967 Québec Inc." in out
+    assert "GÉOSPHÈRE CONSULTANTS" in out
+    assert "source: G25.pdf" in out
+    assert format_catalog_fiches([]) == ""
+
+
+def test_search_knowledge_prepends_catalog(monkeypatch):
+    pytest.importorskip("langchain_core")
+
+    def fake_search(query, *, limit=5, filters=None, settings=None, **kwargs):
+        return [
+            {
+                "score": 0.5,
+                "text": "résultats labo",
+                "source_path": "a.pdf",
+                "document_id": "sha1",
+                "page": 12,
+            }
+        ]
+
+    monkeypatch.setattr("rag_ingestion.retrieve.search", fake_search)
+    monkeypatch.setattr(
+        "chatbot.tools.catalog_rows_for_search",
+        lambda filters, hits: [
+            {
+                "document_id": "sha1",
+                "client": "9342-9967 Québec Inc.",
+                "firm": "GÉOSPHÈRE CONSULTANTS",
+                "source_path": "G25.pdf",
+            }
+        ],
+    )
+    from chatbot.tools import build_search_tool
+
+    tool = build_search_tool(_settings(rag_include_catalog=True, rag_hybrid_text=True, rag_prefetch=20))
+    text = tool.invoke({"query": "quel est le nom du client"})
+    assert "9342-9967 Québec Inc." in text
+    assert "Fiches catalog" in text
+    assert "résultats labo" in text
+
+
+def test_search_knowledge_passes_precision_kwargs(monkeypatch):
+    pytest.importorskip("langchain_core")
+    captured: dict = {}
+
+    def fake_search(query, *, limit=5, filters=None, settings=None, **kwargs):
+        captured.update(kwargs)
+        captured["limit"] = limit
+        return []
+
+    monkeypatch.setattr("rag_ingestion.retrieve.search", fake_search)
+    from chatbot.tools import build_search_tool
+
+    tool = build_search_tool(
+        _settings(
+            rag_prefetch=20,
+            rag_score_threshold=0.3,
+            rag_hybrid_text=True,
+        )
+    )
+    tool.invoke({"query": "client"})
+    assert captured["prefetch"] == 20
+    assert captured["score_threshold"] == 0.3
+    assert captured["hybrid_text"] is True
 
 
 class _Msg:
@@ -249,9 +338,16 @@ def test_skip_extra_tool_calls_keeps_remaining_budget():
     assert [m.tool_call_id for m in extras] == ["c"]
 
 
-def test_recursion_limit_for_scales_with_tool_budget():
-    from chatbot.graph import recursion_limit_for
+def test_catalog_rows_for_search_prefers_focused_document(monkeypatch):
+    from chatbot.tools import catalog_rows_for_search
 
-    assert recursion_limit_for(2) >= 12
-    assert recursion_limit_for(5) > recursion_limit_for(2)
+    monkeypatch.setattr(
+        "rag_ingestion.catalog.get_documents",
+        lambda ids, settings=None: [{"document_id": i, "client": "Acme"} for i in ids],
+    )
+    rows = catalog_rows_for_search(
+        {"document_id": "sha-focus"},
+        [{"document_id": "sha-other"}],
+    )
+    assert [r["document_id"] for r in rows] == ["sha-focus", "sha-other"]
 

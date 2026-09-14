@@ -1,7 +1,7 @@
 """Configuration du chatbot : fichiers sous `config/chatbot/`, comme LangExtract.
 
 - `config/chatbot/prompt.txt` — prompt système de l'agent
-- `config/chatbot/settings.json` — llama-server, température, limites, API
+- `config/chatbot/settings.json` — llama-server, échantillonnage, RAG, API
 
 `.env` pointe vers ces fichiers (`CHAT_PROMPT_FILE`, `CHAT_SETTINGS_FILE`)
 et peut surcharger une clé JSON (même nom d'env que ci-dessous).
@@ -24,9 +24,14 @@ _JSON_ENV_KEYS: dict[str, str] = {
     "llama_server_model": "LLAMA_SERVER_MODEL",
     "llama_server_api_key": "LLAMA_SERVER_API_KEY",
     "temperature": "CHAT_TEMPERATURE",
+    "top_p": "CHAT_TOP_P",
     "rag_limit": "CHAT_RAG_LIMIT",
+    "rag_prefetch": "CHAT_RAG_PREFETCH",
+    "rag_score_threshold": "CHAT_RAG_SCORE_THRESHOLD",
     "rag_hit_max_chars": "CHAT_RAG_HIT_MAX_CHARS",
     "rag_table_max_chars": "CHAT_RAG_TABLE_MAX_CHARS",
+    "rag_include_catalog": "CHAT_RAG_INCLUDE_CATALOG",
+    "rag_hybrid_text": "CHAT_RAG_HYBRID_TEXT",
     "max_context_tokens": "CHAT_MAX_CONTEXT_TOKENS",
     "max_tool_calls": "CHAT_MAX_TOOL_CALLS",
     "api_host": "CHAT_API_HOST",
@@ -140,6 +145,19 @@ def _float_from(data: dict, key: str, default: float) -> float:
         return default
 
 
+def _bool_from(data: dict, key: str, default: bool) -> bool:
+    env_key = _JSON_ENV_KEYS[key]
+    env_val = os.getenv(env_key)
+    if env_val is not None and env_val.strip():
+        return env_val.strip().lower() in {"1", "true", "yes", "on"}
+    raw = data.get(key, default)
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class ChatSettings:
     """Paramètres runtime du chatbot (fichiers `config/chatbot/` + `.env`)."""
@@ -159,6 +177,11 @@ class ChatSettings:
     prompt_file: Path
     settings_file: Path
     project_root: Path
+    top_p: float = 1.0
+    rag_prefetch: int = 0
+    rag_score_threshold: float = 0.0
+    rag_include_catalog: bool = False
+    rag_hybrid_text: bool = False
 
 
 def load_chat_settings() -> ChatSettings:
@@ -186,10 +209,15 @@ def load_chat_settings() -> ChatSettings:
             "sk-no-key-required",
             extra_env=("OPENAI_API_KEY",),
         ),
-        temperature=_float_from(data, "temperature", 0.2),
-        rag_limit=_int_from(data, "rag_limit", 5, minimum=1),
-        rag_hit_max_chars=_int_from(data, "rag_hit_max_chars", 1200, minimum=100),
-        rag_table_max_chars=_int_from(data, "rag_table_max_chars", 2400, minimum=400),
+        temperature=_float_from(data, "temperature", 0.0),
+        top_p=min(1.0, max(0.0, _float_from(data, "top_p", 0.9))),
+        rag_limit=_int_from(data, "rag_limit", 8, minimum=1),
+        rag_prefetch=_int_from(data, "rag_prefetch", 20, minimum=0),
+        rag_score_threshold=max(0.0, _float_from(data, "rag_score_threshold", 0.0)),
+        rag_hit_max_chars=_int_from(data, "rag_hit_max_chars", 1800, minimum=100),
+        rag_table_max_chars=_int_from(data, "rag_table_max_chars", 3200, minimum=400),
+        rag_include_catalog=_bool_from(data, "rag_include_catalog", True),
+        rag_hybrid_text=_bool_from(data, "rag_hybrid_text", True),
         max_context_tokens=_int_from(data, "max_context_tokens", 48000, minimum=2000),
         max_tool_calls=_int_from(data, "max_tool_calls", 2, minimum=1),
         api_host=_str_from(data, "api_host", "127.0.0.1"),

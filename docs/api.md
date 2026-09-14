@@ -2,7 +2,7 @@
 
 Le service Compose `chat` expose FastAPI (`src/chatbot/api.py`, `rag-chat serve`). L’UI Vite (`ui/`) parle à cette API : en Docker via nginx (`ui/nginx.conf`, port **3000**), en local via le proxy Vite vers `127.0.0.1:8000`.
 
-Le modèle **n’a pas** les chunks dans le prompt. Il appelle l’outil `search_knowledge` (`src/chatbot/tools.py` → `retrieve.search`).
+Le modèle **n’a pas** les chunks dans le prompt. Il appelle l’outil `search_knowledge` (`src/chatbot/tools.py` → `retrieve.search`). Si `rag_include_catalog` est vrai, l’outil préfixe aussi la fiche catalog (client, firme, adresse).
 
 ## Lecture catalog
 

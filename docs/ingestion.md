@@ -96,7 +96,11 @@ Géocodage Nominatim **à l’ingest seulement**, si `GEOCODE_ENABLED=1` et le s
 `src/rag_ingestion/retrieve.py` (CLI `rag-ingest query` et outil chat) :
 
 1. embedding de la question + recherche dense (filtres payload optionnels) ;
-2. si un n° de projet apparaît dans la question ou les filtres : deuxième requête **mot-clé** (`entities` / `project_id` / MatchText dans `text`), fusion des hits.
+2. si un n° de projet apparaît dans la question ou les filtres : deuxième requête **mot-clé** (`entities` / `project_id` / MatchText dans `text`), fusion des hits ;
+3. chatbot (`rag_hybrid_text`) : même branche mot-clé pour les termes d'identité (`client`, `firme`, `adresse`, …) ;
+4. chatbot (`rag_include_catalog`) : les fiches SQLite (client, firme, adresse, lot) sont **préfixées** au markdown de l'outil — c'est la source d'identité, pas uniquement les chunks.
+
+Le chatbot lit ces réglages dans `config/chatbot/settings.json` (`rag_limit`, `rag_prefetch`, `rag_score_threshold`, `temperature`, `top_p`).
 
 ```bash
 rag-ingest query "contamination 4405" --filter project_id=4405
