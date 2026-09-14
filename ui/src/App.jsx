@@ -11,6 +11,7 @@ import { Clock, Send, ShieldCheck } from "lucide-react";
 import { fetchSites, fetchTimeline, fileLabel, postChat } from "./api";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+const MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 const QC_CENTER = { lat: 46.8139, lng: -71.208 };
 
 function PanTo({ pos }) {
@@ -160,8 +161,9 @@ function App() {
   const mapInner = (
     <>
       {MAPS_KEY ? (
-        <APIProvider apiKey={MAPS_KEY}>
+        <APIProvider apiKey={MAPS_KEY} libraries={["marker"]}>
           <Map
+            mapId={MAP_ID}
             defaultCenter={QC_CENTER}
             defaultZoom={8}
             style={{ width: "100%", height: "100%" }}
