@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from typing import Any
 
 from chatbot.config import ChatSettings, load_chat_settings
@@ -11,6 +12,9 @@ from chatbot.config import ChatSettings, load_chat_settings
 _MAX_RAG_LIMIT = 10
 _TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
 _DEFAULT_TABLE_MAX_CHARS = 2400
+
+ui_site_id: ContextVar[str] = ContextVar("ui_site_id", default="")
+ui_document_id: ContextVar[str] = ContextVar("ui_document_id", default="")
 
 
 def is_table_heavy(text: str) -> bool:
@@ -98,6 +102,18 @@ def _filters_from_args(
     return filters
 
 
+def apply_ui_focus_filters(filters: dict[str, str]) -> dict[str, str]:
+    """Le focus carte / chronologie prime : document_id, sinon site_id."""
+    out = dict(filters)
+    focused_doc = (ui_document_id.get() or "").strip()
+    focused_site = (ui_site_id.get() or "").strip()
+    if focused_doc:
+        out["document_id"] = focused_doc
+    elif focused_site:
+        out["site_id"] = focused_site
+    return out
+
+
 def build_search_tool(settings: ChatSettings | None = None):
     """Outil `search_knowledge` qui appelle `rag_ingestion.retrieve.search`.
 
@@ -145,8 +161,10 @@ def build_search_tool(settings: ChatSettings | None = None):
         hits = retrieve_search(
             query,
             limit=n,
-            filters=_filters_from_args(
-                doc_type, entities, document_id, site_id, project_id
+            filters=apply_ui_focus_filters(
+                _filters_from_args(
+                    doc_type, entities, document_id, site_id, project_id
+                )
             )
             or None,
         )

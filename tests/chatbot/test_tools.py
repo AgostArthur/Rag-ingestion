@@ -4,7 +4,7 @@ import pytest
 
 from chatbot.config import ChatSettings
 from chatbot.graph import last_message_text, skip_extra_tool_calls, tool_messages_this_turn
-from chatbot.tools import _MAX_RAG_LIMIT, _filters_from_args, format_hits
+from chatbot.tools import _MAX_RAG_LIMIT, _filters_from_args, apply_ui_focus_filters, format_hits, ui_document_id, ui_site_id
 
 
 def _settings(**overrides: object) -> ChatSettings:
@@ -108,6 +108,39 @@ def test_filters_from_args_skips_blank():
         "entities": "ACME, Hydro-Québec",
         "document_id": "abc",
     }
+
+
+def test_apply_ui_focus_filters_document_wins_over_site():
+    token_s = ui_site_id.set("lot:2363352")
+    token_d = ui_document_id.set("aaa")
+    try:
+        out = apply_ui_focus_filters({"project_id": "4405"})
+        assert out["document_id"] == "aaa"
+        assert out["project_id"] == "4405"
+        assert "site_id" not in out
+    finally:
+        ui_document_id.reset(token_d)
+        ui_site_id.reset(token_s)
+
+
+def test_search_knowledge_applies_ui_site(monkeypatch):
+    pytest.importorskip("langchain_core")
+    captured: dict = {}
+
+    def fake_search(query, *, limit=5, filters=None, settings=None):
+        captured["filters"] = filters
+        return []
+
+    monkeypatch.setattr("rag_ingestion.retrieve.search", fake_search)
+    from chatbot.tools import build_search_tool
+
+    token = ui_site_id.set("lot:2363352")
+    try:
+        tool = build_search_tool(_settings())
+        tool.invoke({"query": "contamination"})
+    finally:
+        ui_site_id.reset(token)
+    assert captured["filters"] == {"site_id": "lot:2363352"}
 
 
 def test_search_knowledge_calls_retrieve(monkeypatch):

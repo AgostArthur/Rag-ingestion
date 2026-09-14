@@ -9,6 +9,7 @@ from chatbot.config import ChatSettings, load_chat_settings
 from chatbot.focus import envelope_from_result
 from chatbot.graph import build_graph, last_message_text, recursion_limit_for
 from chatbot.health import collect_health
+from chatbot.tools import ui_document_id, ui_site_id
 
 
 def create_app(settings: ChatSettings | None = None):
@@ -17,7 +18,8 @@ def create_app(settings: ChatSettings | None = None):
     Args:
         settings: Config chatbot ; `.env` si omis.
     """
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Query
+    from fastapi.middleware.cors import CORSMiddleware
     from pydantic import BaseModel, Field
 
     s = settings or load_chat_settings()
@@ -26,6 +28,8 @@ def create_app(settings: ChatSettings | None = None):
     class ChatRequest(BaseModel):
         message: str = Field(min_length=1)
         thread_id: str | None = None
+        site_id: str | None = None
+        document_id: str | None = None
 
     class Focus(BaseModel):
         document_ids: list[str]
@@ -39,11 +43,37 @@ def create_app(settings: ChatSettings | None = None):
         documents: list[dict[str, Any]]
         citations: list[dict[str, Any]]
 
-    app = FastAPI(title="RAG chat", version="0.2.0")
+    app = FastAPI(title="RAG chat", version="0.3.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/health")
     def health() -> dict[str, Any]:
         return collect_health(s)
+
+    @app.get("/sites")
+    def sites(
+        bbox: str | None = Query(default=None),
+        geojson: bool = Query(default=False),
+    ) -> Any:
+        from rag_ingestion.catalog import list_sites, parse_bbox, sites_geojson
+
+        try:
+            box = parse_bbox(bbox)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rows = list_sites(bbox=box)
+        if geojson:
+            return sites_geojson(rows)
+        return {"sites": rows}
 
     @app.get("/documents/{document_id}")
     def document(document_id: str) -> dict[str, Any]:
@@ -75,13 +105,19 @@ def create_app(settings: ChatSettings | None = None):
     @app.post("/chat", response_model=ChatResponse)
     def chat(body: ChatRequest) -> Any:
         thread_id = body.thread_id or str(uuid.uuid4())
-        result = graph.invoke(
-            {"messages": [{"role": "user", "content": body.message}]},
-            config={
-                "configurable": {"thread_id": thread_id},
-                "recursion_limit": recursion_limit_for(s.max_tool_calls),
-            },
-        )
+        site_token = ui_site_id.set((body.site_id or "").strip())
+        doc_token = ui_document_id.set((body.document_id or "").strip())
+        try:
+            result = graph.invoke(
+                {"messages": [{"role": "user", "content": body.message}]},
+                config={
+                    "configurable": {"thread_id": thread_id},
+                    "recursion_limit": recursion_limit_for(s.max_tool_calls),
+                },
+            )
+        finally:
+            ui_site_id.reset(site_token)
+            ui_document_id.reset(doc_token)
         envelope = envelope_from_result(result)
         return ChatResponse(
             reply=last_message_text(result),

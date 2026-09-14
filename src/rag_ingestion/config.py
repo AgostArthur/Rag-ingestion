@@ -103,6 +103,8 @@ class Settings:
     ingest_poll_seconds: int = 10
     ingest_skip_existing: bool = True
     ingest_skip_extract: bool = False
+    geocode_enabled: bool = False
+    geocode_user_agent: str = "rag-ingestion/0.1 (enviro-rag)"
 
     @property
     def parsed_dir(self) -> Path:
@@ -194,4 +196,8 @@ def load_settings() -> Settings:
         ingest_poll_seconds=_int_env("INGEST_POLL_SECONDS", 10, minimum=1),
         ingest_skip_existing=_bool_env("INGEST_SKIP_EXISTING", True),
         ingest_skip_extract=_bool_env("INGEST_SKIP_EXTRACT", False),
+        geocode_enabled=_bool_env("GEOCODE_ENABLED", True),
+        geocode_user_agent=(
+            os.getenv("GEOCODE_USER_AGENT", "").strip() or "rag-ingestion/0.1 (enviro-rag)"
+        ),
     )
