@@ -2,11 +2,16 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+
+from fastapi.testclient import TestClient
+
 from chatbot.config import ChatSettings
 
 
-def _settings() -> ChatSettings:
-    return ChatSettings(
+def _settings(**overrides: object) -> ChatSettings:
+    base: dict = dict(
         llama_server_base_url="http://localhost:8080/v1",
         llama_server_model="local",
         llama_server_api_key="sk-no-key-required",
@@ -39,3 +44,53 @@ def test_root_is_not_404(monkeypatch):
     assert body["health"] == "/health"
     assert body["chat"] == "POST /chat"
     assert client.get("/favicon.ico").status_code == 204
+    base.update(overrides)
+    return ChatSettings(**base)  # type: ignore[arg-type]
+
+
+class _FakeGraph:
+    def invoke(self, state, config=None):
+        return {"messages": []}
+
+
+@pytest.fixture
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
+    monkeypatch.setattr("chatbot.api.build_graph", lambda settings: _FakeGraph())
+    monkeypatch.setattr("chatbot.api.last_message_text", lambda result: "pong")
+    monkeypatch.setattr(
+        "chatbot.api.envelope_from_result",
+        lambda result: {
+            "focus": {"document_ids": [], "project_ids": [], "site_ids": []},
+            "documents": [],
+            "citations": [],
+        },
+    )
+    from chatbot.api import create_app
+
+    app = create_app(_settings(checkpoint_db=tmp_path / "ck.sqlite"))
+    return TestClient(app)
+
+
+def test_chat_openapi_uses_json_body_not_query(client: TestClient):
+    schema = client.app.openapi()
+    post = schema["paths"]["/chat"]["post"]
+    assert "requestBody" in post
+    params = post.get("parameters") or []
+    assert not any(p.get("in") == "query" and p.get("name") in {"body", "payload"} for p in params)
+
+
+def test_chat_post_json_is_accepted(client: TestClient):
+    res = client.post("/chat", json={"message": "hello", "site_id": "lot:2363352"})
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["reply"] == "pong"
+    assert data["thread_id"]
+    assert data["focus"]["document_ids"] == []
+
+
+def test_chat_missing_body_is_json_not_query(client: TestClient):
+    res = client.post("/chat")
+    assert res.status_code == 422
+    loc = res.json()["detail"][0]["loc"]
+    assert loc[0] == "body"
+    assert "query" not in loc

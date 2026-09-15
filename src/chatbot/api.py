@@ -5,10 +5,34 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 from chatbot.config import ChatSettings, load_chat_settings
 from chatbot.focus import envelope_from_result
 from chatbot.graph import build_graph, last_message_text, recursion_limit_for
 from chatbot.health import collect_health
+from chatbot.tools import ui_document_id, ui_site_id
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1)
+    thread_id: str | None = None
+    site_id: str | None = None
+    document_id: str | None = None
+
+
+class Focus(BaseModel):
+    document_ids: list[str]
+    project_ids: list[str]
+    site_ids: list[str]
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    thread_id: str
+    focus: Focus
+    documents: list[dict[str, Any]]
+    citations: list[dict[str, Any]]
 
 
 def create_app(settings: ChatSettings | None = None):
@@ -17,29 +41,23 @@ def create_app(settings: ChatSettings | None = None):
     Args:
         settings: Config chatbot ; `.env` si omis.
     """
-    from fastapi import FastAPI, HTTPException
-    from pydantic import BaseModel, Field
+    from fastapi import Body, FastAPI, HTTPException, Query
+    from fastapi.middleware.cors import CORSMiddleware
 
     s = settings or load_chat_settings()
     graph = build_graph(s)
 
-    class ChatRequest(BaseModel):
-        message: str = Field(min_length=1)
-        thread_id: str | None = None
-
-    class Focus(BaseModel):
-        document_ids: list[str]
-        project_ids: list[str]
-        site_ids: list[str]
-
-    class ChatResponse(BaseModel):
-        reply: str
-        thread_id: str
-        focus: Focus
-        documents: list[dict[str, Any]]
-        citations: list[dict[str, Any]]
-
-    app = FastAPI(title="RAG chat", version="0.2.0")
+    app = FastAPI(title="RAG chat", version="0.3.0")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.get("/")
     def root() -> dict[str, Any]:
@@ -60,6 +78,22 @@ def create_app(settings: ChatSettings | None = None):
     @app.get("/health")
     def health() -> dict[str, Any]:
         return collect_health(s)
+
+    @app.get("/sites")
+    def sites(
+        bbox: str | None = Query(default=None),
+        geojson: bool = Query(default=False),
+    ) -> Any:
+        from rag_ingestion.catalog import list_sites, parse_bbox, sites_geojson
+
+        try:
+            box = parse_bbox(bbox)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        rows = list_sites(bbox=box)
+        if geojson:
+            return sites_geojson(rows)
+        return {"sites": rows}
 
     @app.get("/documents/{document_id}")
     def document(document_id: str) -> dict[str, Any]:
@@ -89,15 +123,21 @@ def create_app(settings: ChatSettings | None = None):
         return {"site_id": site_id, "events": get_site_timeline(site_id)}
 
     @app.post("/chat", response_model=ChatResponse)
-    def chat(body: ChatRequest) -> Any:
-        thread_id = body.thread_id or str(uuid.uuid4())
-        result = graph.invoke(
-            {"messages": [{"role": "user", "content": body.message}]},
-            config={
-                "configurable": {"thread_id": thread_id},
-                "recursion_limit": recursion_limit_for(s.max_tool_calls),
-            },
-        )
+    def chat(payload: ChatRequest = Body()) -> Any:
+        thread_id = payload.thread_id or str(uuid.uuid4())
+        site_token = ui_site_id.set((payload.site_id or "").strip())
+        doc_token = ui_document_id.set((payload.document_id or "").strip())
+        try:
+            result = graph.invoke(
+                {"messages": [{"role": "user", "content": payload.message}]},
+                config={
+                    "configurable": {"thread_id": thread_id},
+                    "recursion_limit": recursion_limit_for(s.max_tool_calls),
+                },
+            )
+        finally:
+            ui_site_id.reset(site_token)
+            ui_document_id.reset(doc_token)
         envelope = envelope_from_result(result)
         return ChatResponse(
             reply=last_message_text(result),

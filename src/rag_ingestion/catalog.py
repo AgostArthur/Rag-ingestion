@@ -134,18 +134,18 @@ def _upsert_site(conn: sqlite3.Connection, meta: DocumentMeta, site_id: str) -> 
             (site_id, meta.lot_cadastral, meta.address, incoming_key, meta.city, now),
         )
         return
-        conn.execute(
-            "UPDATE sites SET lot_cadastral = ?, address = ?, address_key = ?, city = ?, "
-            "updated_at = ? WHERE site_id = ?",
-            (
-                _fill_if_empty(existing["lot_cadastral"], meta.lot_cadastral),
-                _fill_if_empty(existing["address"], meta.address),
-                _fill_if_empty(existing["address_key"], incoming_key),
-                _fill_if_empty(existing["city"], meta.city),
-                now,
-                site_id,
-            ),
-        )
+    conn.execute(
+        "UPDATE sites SET lot_cadastral = ?, address = ?, address_key = ?, city = ?, "
+        "updated_at = ? WHERE site_id = ?",
+        (
+            _fill_if_empty(existing["lot_cadastral"], meta.lot_cadastral),
+            _fill_if_empty(existing["address"], meta.address),
+            _fill_if_empty(existing["address_key"], incoming_key),
+            _fill_if_empty(existing["city"], meta.city),
+            now,
+            site_id,
+        ),
+    )
 
 
 def _merge_address_sites_into(
@@ -174,6 +174,41 @@ def _merge_address_sites_into(
         logger.info("  Merged catalog site %s into %s", old_id, canonical_id)
 
 
+def _geocode_site(conn: sqlite3.Connection, site_id: str, *, settings: Settings) -> None:
+    """Remplit lat/lon si GEOCODE_ENABLED et le site n'est pas déjà `ok`."""
+    if not settings.geocode_enabled:
+        return
+    row = conn.execute(
+        "SELECT address, city, lat, lon, geocode_status FROM sites WHERE site_id = ?",
+        (site_id,),
+    ).fetchone()
+    if row is None:
+        return
+    if row["lat"] is not None and row["lon"] is not None and row["geocode_status"] == "ok":
+        return
+    from rag_ingestion.geocode import geocode_address
+
+    coords = geocode_address(
+        row["address"],
+        city=row["city"],
+        user_agent=settings.geocode_user_agent,
+    )
+    now = _now()
+    if coords is None:
+        conn.execute(
+            "UPDATE sites SET geocode_status = ?, updated_at = ? WHERE site_id = ?",
+            ("failed", now, site_id),
+        )
+        logger.warning("  Geocode failed for site %s", site_id)
+        return
+    lat, lon = coords
+    conn.execute(
+        "UPDATE sites SET lat = ?, lon = ?, geocode_status = ?, updated_at = ? WHERE site_id = ?",
+        (lat, lon, "ok", now, site_id),
+    )
+    logger.info("  Geocoded site %s → %s, %s", site_id, lat, lon)
+
+
 def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -> DocumentMeta:
     """Écrit / met à jour sites, documents, events. Remplace les events du document.
 
@@ -194,6 +229,7 @@ def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -
             _upsert_site(conn, meta, site_id)
             _merge_address_sites_into(conn, site_id, address_key(meta.address))
             meta.site_id = site_id
+            _geocode_site(conn, site_id, settings=s)
         conn.execute(
             """
             INSERT INTO documents (
@@ -393,7 +429,10 @@ def get_site(site_id: str, settings: Settings | None = None) -> dict[str, Any] |
 
 
 def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[dict[str, Any]]:
-    """Events du site, triés par date."""
+    """Events du site, triés par date, avec titre / firme du document.
+
+    S'il n'y a pas d'events LangExtract, repli sur `report_date` des documents.
+    """
     s = settings or load_settings()
     path = catalog_path(s)
     if not path.is_file():
@@ -409,19 +448,129 @@ def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[di
             "ORDER BY iso_date, id",
             (site_id, *roles),
         ).fetchall()
-        return [
-            {
-                "id": row["id"],
-                "document_id": row["document_id"],
-                "site_id": row["site_id"],
-                "iso_date": row["iso_date"],
-                "role": row["role"],
-                "label": row["label"],
-            }
-            for row in rows
-        ]
+        events = [_event_dict(row) for row in rows]
+        if events:
+            return events
+        docs = conn.execute(
+            "SELECT document_id, title, firm, doc_type, project_id, source_path, report_date "
+            "FROM documents WHERE site_id = ? ORDER BY report_date, ingested_at",
+            (site_id,),
+        ).fetchall()
+        fallback: list[dict[str, Any]] = []
+        for row in docs:
+            iso = row["report_date"]
+            if not iso:
+                continue
+            fallback.append(
+                {
+                    "id": None,
+                    "document_id": row["document_id"],
+                    "site_id": site_id,
+                    "iso_date": iso,
+                    "role": "report",
+                    "label": row["title"] or row["firm"] or "rapport",
+                    "title": row["title"],
+                    "firm": row["firm"],
+                    "doc_type": row["doc_type"],
+                    "project_id": row["project_id"],
+                    "source_path": row["source_path"],
+                }
+            )
+        return fallback
     finally:
         conn.close()
+
+
+def _event_dict(row: sqlite3.Row) -> dict[str, Any]:
+    keys = row.keys()
+    return {
+        "id": row["id"],
+        "document_id": row["document_id"],
+        "site_id": row["site_id"],
+        "iso_date": row["iso_date"],
+        "role": row["role"],
+        "label": row["label"],
+        "title": row["title"] if "title" in keys else None,
+        "firm": row["firm"] if "firm" in keys else None,
+        "doc_type": row["doc_type"] if "doc_type" in keys else None,
+        "project_id": row["project_id"] if "project_id" in keys else None,
+        "source_path": row["source_path"] if "source_path" in keys else None,
+    }
+
+
+def parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:
+    """`min_lon,min_lat,max_lon,max_lat` ou None si vide.
+
+    Raises:
+        ValueError: Format invalide.
+    """
+    if raw is None or not str(raw).strip():
+        return None
+    parts = [p.strip() for p in str(raw).split(",")]
+    if len(parts) != 4:
+        raise ValueError("bbox must be min_lon,min_lat,max_lon,max_lat")
+    try:
+        min_lon, min_lat, max_lon, max_lat = (float(p) for p in parts)
+    except ValueError as exc:
+        raise ValueError("bbox values must be numbers") from exc
+    return min_lon, min_lat, max_lon, max_lat
+
+
+def list_sites(
+    *,
+    bbox: tuple[float, float, float, float] | None = None,
+    settings: Settings | None = None,
+) -> list[dict[str, Any]]:
+    """Tous les sites du catalog, optionnellement filtrés par bbox."""
+    s = settings or load_settings()
+    path = catalog_path(s)
+    if not path.is_file():
+        return []
+    conn = connect(path)
+    try:
+        ensure_schema(conn)
+        sql = "SELECT * FROM sites"
+        args: list[Any] = []
+        if bbox is not None:
+            sql += (
+                " WHERE lat IS NOT NULL AND lon IS NOT NULL "
+                "AND lon >= ? AND lat >= ? AND lon <= ? AND lat <= ?"
+            )
+            args.extend(bbox)
+        sql += " ORDER BY site_id"
+        rows = conn.execute(sql, args).fetchall()
+        docs = conn.execute(
+            "SELECT site_id, document_id FROM documents ORDER BY ingested_at"
+        ).fetchall()
+        by_site: dict[str, list[str]] = {}
+        for doc in docs:
+            sid = doc["site_id"]
+            if not sid:
+                continue
+            by_site.setdefault(str(sid), []).append(str(doc["document_id"]))
+        return [_site_dict(row, by_site.get(str(row["site_id"]), [])) for row in rows]
+    finally:
+        conn.close()
+
+
+def sites_geojson(sites: list[dict[str, Any]]) -> dict[str, Any]:
+    """FeatureCollection des sites qui ont lat/lon."""
+    features: list[dict[str, Any]] = []
+    for site in sites:
+        lat = site.get("lat")
+        lon = site.get("lon")
+        if lat is None or lon is None:
+            continue
+        props = {k: v for k, v in site.items() if k not in {"lat", "lon"}}
+        features.append(
+            {
+                "type": "Feature",
+                "id": site.get("site_id"),
+                "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
+                "properties": props,
+            }
+        )
+    return {"type": "FeatureCollection", "features": features}
 
 
 def ping_catalog(settings: Settings | None = None) -> tuple[bool, str]:

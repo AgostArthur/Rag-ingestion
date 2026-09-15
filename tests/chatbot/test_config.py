@@ -44,6 +44,22 @@ def test_load_default_settings():
     assert int(data["rag_table_max_chars"]) >= 400
     assert data["checkpoint_db"]
     assert "temperature" in data
+    assert "top_p" in data
+    assert "rag_prefetch" in data
+    assert "rag_score_threshold" in data
+    assert data["rag_include_catalog"] is True
+    assert data["rag_hybrid_text"] is True
+
+
+def test_load_chat_settings_reads_precision_flags():
+    from chatbot.config import load_chat_settings
+
+    settings = load_chat_settings()
+    assert settings.rag_include_catalog is True
+    assert settings.rag_hybrid_text is True
+    assert settings.temperature == 0.0
+    assert settings.rag_prefetch >= settings.rag_limit
+    assert 0.0 <= settings.top_p <= 1.0
 
 
 def test_load_prompt_missing(tmp_path: Path):

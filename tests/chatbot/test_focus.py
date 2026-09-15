@@ -38,6 +38,29 @@ def test_parse_tool_hits_roundtrip_format_hits():
     assert citations[0]["document_id"] == "abc"
 
 
+def test_parse_tool_hits_ignores_catalog_fiches():
+    from chatbot.tools import format_catalog_fiches
+
+    fiche = format_catalog_fiches(
+        [{"document_id": "abc", "client": "9342-9967 Québec Inc.", "source_path": "a.pdf"}]
+    )
+    chunks = format_hits(
+        [
+            {
+                "score": 0.5,
+                "text": "labo",
+                "document_id": "abc",
+                "page": 2,
+                "source_path": "a.pdf",
+            }
+        ]
+    )
+    hits = parse_tool_hits(f"{fiche}\n\n{chunks}")
+    assert len(hits) == 1
+    assert hits[0]["text"] == "labo"
+    assert hits[0]["document_id"] == "abc"
+
+
 def test_is_table_heavy_and_preserves_pipes():
     table = "| Paramètre | F-1 |\n| --- | --- |\n| HAM | 120 |\n| HAP | 3 |"
     assert is_table_heavy(table)

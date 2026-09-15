@@ -89,6 +89,65 @@ def test_search_hybrid_unions_keyword_when_query_has_project_id(monkeypatch):
     assert "sha-2259" in ids
 
 
+def test_search_hybrid_text_runs_keyword_without_project_id(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_embed(text, settings=None):
+        return [0.1, 0.2]
+
+    def fake_similar(collection, vector, *, limit=5, filters=None, query_filter=None, settings=None):
+        calls.append({"query_filter": query_filter, "limit": limit})
+        if query_filter is not None:
+            return [
+                {
+                    "score": 0.7,
+                    "text": "Client : 9342-9967 Québec Inc.",
+                    "document_id": "sha-g25",
+                    "chunk_id": "sha-g25:0",
+                    "chunk_index": 0,
+                }
+            ]
+        return [
+            {
+                "score": 0.4,
+                "text": "tableau d'analyses",
+                "document_id": "sha-g25",
+                "chunk_id": "sha-g25:9",
+                "chunk_index": 9,
+            }
+        ]
+
+    monkeypatch.setattr("rag_ingestion.retrieve.embed_query", fake_embed)
+    monkeypatch.setattr("rag_ingestion.retrieve.search_similar", fake_similar)
+
+    from pathlib import Path
+
+    from rag_ingestion.config import Settings
+
+    settings = Settings(
+        qdrant_url="http://localhost:6333",
+        qdrant_collection="chunks_test",
+        embed_model="x",
+        embed_dim=8,
+        ollama_base_url="http://localhost:11434",
+        langextract_model="x",
+        langextract_timeout_seconds=1.0,
+        langextract_prompt_file=Path("config/langextract/prompt.txt"),
+        langextract_few_shots_file=Path("config/langextract/few_shots.json"),
+        ocr_language="fra",
+        ocr_server_url=None,
+        ocr_heavy_ratio=0.5,
+        chunk_size_chars=2400,
+        chunk_overlap_chars=300,
+        data_dir=Path("data"),
+        project_root=Path("."),
+    )
+    hits = search("quel est le nom du client", limit=5, hybrid_text=True, settings=settings)
+    assert len(calls) == 2
+    assert calls[1]["query_filter"] is not None
+    assert hits[0]["text"].startswith("Client")
+
+
 def test_keyword_filter_drops_strict_entities():
     built = build_keyword_filter(["4405"], {"entities": "4405", "doc_type": "ees_phase_2"})
     assert built is not None

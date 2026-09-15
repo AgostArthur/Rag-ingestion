@@ -3,14 +3,31 @@
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from typing import Any
 
 from chatbot.config import ChatSettings, load_chat_settings
 
 # Cap so the model cannot request dozens of chunks in one tool call.
-_MAX_RAG_LIMIT = 10
+_MAX_RAG_LIMIT = 20
 _TABLE_LINE_RE = re.compile(r"^\s*\|.*\|\s*$")
 _DEFAULT_TABLE_MAX_CHARS = 2400
+_CATALOG_FIELDS = (
+    "title",
+    "client",
+    "firm",
+    "project_id",
+    "project_ids",
+    "doc_type",
+    "address",
+    "lot_cadastral",
+    "city",
+    "report_date",
+    "site_id",
+)
+
+ui_site_id: ContextVar[str] = ContextVar("ui_site_id", default="")
+ui_document_id: ContextVar[str] = ContextVar("ui_document_id", default="")
 
 
 def is_table_heavy(text: str) -> bool:
@@ -81,6 +98,60 @@ def format_hits(
     return "\n\n".join(parts)
 
 
+def _short_source(path: str) -> str:
+    text = (path or "").strip()
+    if "/" in text:
+        return text.rsplit("/", 1)[-1]
+    return text
+
+
+def format_catalog_fiches(rows: list[dict[str, Any]]) -> str:
+    """Formate les fiches SQLite (client, firme, adresse) pour le LLM."""
+    if not rows:
+        return ""
+    parts = [
+        "## Fiches catalog (métadonnées d'ingest : client, firme, adresse, lot, projet)"
+    ]
+    for row in rows:
+        lines = [f"### Document {row.get('document_id') or ''}"]
+        source = _short_source(str(row.get("source_path") or ""))
+        if source:
+            lines.append(f"- source: {source}")
+        for key in _CATALOG_FIELDS:
+            value = row.get(key)
+            if value is None or value == "" or value == []:
+                continue
+            if isinstance(value, list):
+                value = ", ".join(str(item) for item in value if item)
+            if value == "":
+                continue
+            lines.append(f"- {key}: {value}")
+        parts.append("\n".join(lines))
+    return "\n\n".join(parts)
+
+
+def catalog_rows_for_search(
+    filters: dict[str, str], hits: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Fiches catalog du focus UI, sinon des documents touchés par les hits."""
+    from rag_ingestion.catalog import get_documents, get_site
+
+    ids: list[str] = []
+    focused_doc = (filters.get("document_id") or "").strip()
+    focused_site = (filters.get("site_id") or "").strip()
+    if focused_doc:
+        ids.append(focused_doc)
+    elif focused_site:
+        site = get_site(focused_site)
+        if site:
+            ids.extend(str(doc_id) for doc_id in (site.get("document_ids") or []))
+    for hit in hits:
+        doc_id = str(hit.get("document_id") or "").strip()
+        if doc_id:
+            ids.append(doc_id)
+    return get_documents(ids)
+
+
 def _filters_from_args(
     doc_type: str = "",
     entities: str = "",
@@ -106,6 +177,18 @@ def _filters_from_args(
     return filters
 
 
+def apply_ui_focus_filters(filters: dict[str, str]) -> dict[str, str]:
+    """Le focus carte / chronologie prime : document_id, sinon site_id."""
+    out = dict(filters)
+    focused_doc = (ui_document_id.get() or "").strip()
+    focused_site = (ui_site_id.get() or "").strip()
+    if focused_doc:
+        out["document_id"] = focused_doc
+    elif focused_site:
+        out["site_id"] = focused_site
+    return out
+
+
 def build_search_tool(settings: ChatSettings | None = None):
     """Outil `search_knowledge` qui appelle `rag_ingestion.retrieve.search`.
 
@@ -120,6 +203,10 @@ def build_search_tool(settings: ChatSettings | None = None):
     default_limit = chat.rag_limit
     hit_max_chars = chat.rag_hit_max_chars
     table_max_chars = chat.rag_table_max_chars
+    prefetch = chat.rag_prefetch
+    score_threshold = chat.rag_score_threshold
+    hybrid_text = chat.rag_hybrid_text
+    include_catalog = chat.rag_include_catalog
 
     @tool
     def search_knowledge(
@@ -137,7 +224,8 @@ def build_search_tool(settings: ChatSettings | None = None):
         Call this tool for factual questions about ingested documents.
         For a project number (e.g. 2259, 4405), pass it in `entities` or
         `project_id` and include it in the query. Hybrid search also matches
-        the number in chunk text if LangExtract missed it.
+        the number in chunk text if LangExtract missed it. Identity questions
+        (client, firm, address) should include those words in `query`.
 
         Args:
             query: Natural-language search phrase (not keywords only).
@@ -153,6 +241,9 @@ def build_search_tool(settings: ChatSettings | None = None):
         """
         n = limit if limit and limit > 0 else default_limit
         n = max(1, min(int(n), _MAX_RAG_LIMIT))
+        filters = apply_ui_focus_filters(
+            _filters_from_args(doc_type, entities, document_id, site_id, project_id)
+        )
         hits = retrieve_search(
             query,
             limit=n,
@@ -166,10 +257,19 @@ def build_search_tool(settings: ChatSettings | None = None):
             )
             or None,
         )
-        return format_hits(
+        chunks = format_hits(
             hits,
             max_chars=hit_max_chars,
             table_max_chars=table_max_chars,
         )
+        if not include_catalog:
+            return chunks
+        try:
+            fiches = format_catalog_fiches(catalog_rows_for_search(filters, hits))
+        except Exception:
+            fiches = ""
+        if fiches:
+            return f"{fiches}\n\n{chunks}"
+        return chunks
 
     return search_knowledge

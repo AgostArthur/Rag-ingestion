@@ -26,4 +26,5 @@ def build_chat_model(settings: ChatSettings | None = None):
         api_key=s.llama_server_api_key,
         model=s.llama_server_model,
         temperature=s.temperature,
+        top_p=s.top_p,
     )

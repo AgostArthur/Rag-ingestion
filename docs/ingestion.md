@@ -1,10 +1,10 @@
-# Démarche d’ingestion RAG
+# Ingestion
 
-## Contexte
+Transformer un PDF (souvent un scan d’ÉES / ESA Québec) en chunks cherchables **et** en fiches métier. Deux rapports du **même site** (ex. dossiers **4405** Enviro-Experts 2023 et **2259** Géosphère 2024, 619 Route 341, L’Épiphanie, forages du 17 août 2019) doivent **fusionner** sur la carte et **rester distincts** en timeline.
 
-Ce dépôt construit un **corpus interrogable** à partir de PDF métier, pour un usage local (pas d’API cloud d’embeddings ni de LLM d’extraction). Le domaine visé aujourd’hui est celui des **études environnementales de site (ÉES / ESA) au Québec**, en particulier les rapports de **phase I** et **phase II** : lettre d’accompagnement, sommaire, historique d’usage, campagnes de forages, tableaux d’analyses (HAM, HAP, métaux, etc.), conclusions et recommandations. Les PDF sont souvent des **scans** : LiteParse déclenche l’OCR page par page. Le texte indexé n’est donc pas le calque PDF « propre », mais un **Markdown bruité** (en-têtes de page recopiés, tableaux cassés, parfois un n° de projet parasite collé d’un autre dossier).
+Le LLM de chat ne fait pas ce travail. LangExtract + normalisation + SQLite le font **à l’ingest**.
 
-Le besoin n’est pas « coller le PDF dans un LLM ». Un rapport fait souvent des dizaines de pages ; deux rapports du **même site** se ressemblent au mot près (même gabarit de firme, mêmes 9 forages, même date de campagne). Un modèle qui lit tout le fil de conversation **mélange** alors les n° de dossier. Exemple réel déjà observé dans ce projet : le rapport **4405** (Enviro-Experts, site 619 Route 341, L’Épiphanie, forages du 17 août 2019, rapport ~3 janvier 2023) et le rapport **2259** (Géosphère, **même adresse, même lot, même campagne**, rapport ~3 janvier 2024). La recherche sémantique les rapproche ; sans filtre structuré (`entities=4405`) et sans fiche **site** plus tard, le chat attribue au mauvais projet les analyses, les dates et même « l’absence de documents ».
+## Couches
 
 D’où deux produits dans le même repo, volontairement séparés :
 
@@ -359,55 +359,21 @@ Fichier : `src/rag_ingestion/embed.py`.
 
 On embed **uniquement** `[payload.chunk.text for payload in payloads]`. Le JSON LangExtract, le `doc_type`, les `entities` **n’entrent pas** dans le vecteur. Ils voyagent à côté, dans le payload Qdrant.
 
-Résolution du modèle :
+Le chatbot appelle `rag_ingestion.retrieve.search`. L’UI lit le catalog via l’API ([api.md](api.md)).
 
-1. nom demandé = `EMBED_MODEL` ;
-2. s’il n’est pas dans `TextEmbedding.list_supported_models()` de **cette** version FastEmbed → warning et repli `DEFAULT_EMBED_FALLBACK_MODEL` (`intfloat/multilingual-e5-large`) ;
-3. dimension Qdrant = `dim` déclarée par FastEmbed pour le modèle **résolu**. `EMBED_DIM` dans `.env` est ignoré dans ce cas (warning).
+## Déclencheurs
 
-L’instance FastEmbed est mise en cache (`lru_cache`). Premier ingest : téléchargement possible.
+Le catalog n’est **pas** la source des fichiers. Un PDF n’entre dans le corpus que via ingest / watch.
 
-`embed_texts` itère `model.embed(texts)` et convertit chaque vecteur en `list[float]` (float32). Une longueur différente du nombre de textes lève `RuntimeError`.
-
-Pour la **recherche** (hors ingest), `embed_query` utilise `query_embed` si le modèle l’expose, sinon `embed` — certains modèles (E5, etc.) distinguent passage et requête.
-
----
-
-## 9. Étape 6/6 — Écriture Qdrant
-
-Fichier : `src/rag_ingestion/qdrant_store.py`.
-
-Distance : **cosine**. Un point = un chunk.
-
-### 9.1 Collection et indexes
-
-`ensure_collection(nom, vector_size)` :
-
-- si la collection n’existe pas : création avec `VectorParams(size=vector_size, distance=COSINE)` ;
-- si elle existe : lecture de la dimension ; **incompatibilité** → `ValueError` (il faut une autre collection ou ré-embedder tout après un changement de modèle) ;
-- dans tous les cas, création (idempotente) d’indexes payload pour le filtrage :
-
-| Champ | Type d’index |
+| Déclencheur | Commande |
 |---|---|
-| `document_id` | KEYWORD |
-| `source_path` | KEYWORD |
-| `page` | INTEGER |
-| `heading_path` | KEYWORD |
-| `doc_type` | KEYWORD |
-| `entities` | KEYWORD |
-| `dates` | KEYWORD |
-| `parse_quality` | KEYWORD |
-| `site_id` | KEYWORD |
-| `project_id` | KEYWORD |
-| `contaminants` | KEYWORD |
+| Drop folder (Compose `worker`) | Fichier dans `incoming/` → `rag-ingest watch` |
+| Manuel | `rag-ingest ingest fichier.pdf` ou un dossier |
+| Un scan (cron) | `rag-ingest watch --once` |
 
-`topics` est **stocké** dans le payload mais **n’a pas** d’index dédié dans `_INDEXED_FIELDS` (filtre `topics` non exposé dans `build_filter`). Les contaminations détectées se filtrent via `contaminants`.
+`watch` attend que la copie soit stable, calcule le SHA-256, **saute** si le hash est déjà dans le catalog (sauf `--force`), déplace le PDF vers `data/archive/{sha16}/` **puis** ingère depuis ce chemin. Échec → `data/failed/`.
 
-### 9.2 Ré-ingest : delete puis upsert
-
-Avant d’écrire : `delete_by_document_id(collection, document_id)` — tous les points dont le payload `document_id` égale le SHA. Ensuite upsert.
-
-Id de point Qdrant : **UUID v5 déterministe**
+## Identité
 
 ```text
 uuid5(namespace=6ba7b810-9dad-11d1-80b4-00c04fd430c8, name="{document_id}:{chunk_index}")
@@ -422,7 +388,7 @@ Ré-upsert du même chunk (même document, même index) écrase le même id, pas
 Pour chaque chunk :
 
 ```text
-document_id      SHA-256 du PDF
+`document_id`    SHA-256 des **octets** du PDF (`src/rag_ingestion/parse.py`). Même contenu = même id. Ré-ingest : delete Qdrant par `document_id` puis upsert ; events SQL de ce document remplacés.
 source_path      chemin absolu du PDF
 page             int ou null
 heading_path     fil d’Ariane Markdown
@@ -442,23 +408,14 @@ project_id       n° de projet principal ou null
 contaminants     liste de str (contaminations détectées, niveau document)
 ```
 
-Ce JSON LangExtract **n’est pas** dans Qdrant. Il reste dans `data/extractions/{id}.jsonl`.
+Artefacts : `data/parsed/{id}.md`, `data/extractions/{id}.jsonl`, `data/documents/{id}.json`, ligne `documents` dans SQLite.
 
----
+`site_id` : `lot:{chiffres}` si le lot est connu, sinon `addr:{hash}` de l’adresse normalisée (`src/rag_ingestion/normalize.py`). Deux PDF avec le même lot (ou la même adresse rattachée ensuite) partagent un site.
 
-## 10. Fiche parent JSON
+## Chaîne (`ingest_path`, 7 étapes)
 
-Après un ingest **non skippé**, `_write_parent` écrit `data/documents/{document_id}.json` :
+Orchestration : `src/rag_ingestion/pipeline.py`.
 
-```text
-document_id, source_path, content_sha256
-n_pages, n_pages_needs_ocr, parse_quality
-n_chunks, n_extractions
-markdown_path
-extraction_jsonl, extraction_html
-warnings[]
-step_seconds { parse, chunk, langextract, align, embed, qdrant }
-total_seconds
 ```
 
 Quand LangExtract a tourné, `_write_parent` recopie aussi l’identité catalog : `site_id`, `project_id(s)`, `title`, `doc_type`, firme/client, adresse/lot, `report_date`, `contaminants`, `events` (`contract` / `fieldwork` / `report`). La vérité métier reste SQLite (`catalog.sqlite`) ; ce JSON est un journal d’ingest + copie locale.
@@ -486,52 +443,7 @@ warning: …
 total time: …
 ```
 
-Les durées par étape sont aussi dans les logs (`HH:MM:SS  message`) et dans `step_seconds` de la fiche.
-
----
-
-## 12. Recherche après ingest (`rag-ingest query`)
-
-Hors ingest à proprement parler, mais c’est le contrat de sortie.
-
-`rag_ingestion.retrieve.search` :
-
-1. `embed_query(question)` — **même modèle** que l’ingest (sinon les vecteurs ne sont pas comparables) ;
-2. `search_similar` : `query_points` cosine, `limit`, `with_payload=True` ;
-3. filtre optionnel `--filter clé=valeur` (répétable).
-
-Filtres autorisés : `document_id`, `source_path`, `doc_type`, `entities`, `dates`, `heading_path`, `parse_quality`, `page`.
-
-Sémantique :
-
-- `page` : égalité entière ;
-- une seule valeur : `MatchValue` ;
-- plusieurs valeurs séparées par des virgules : `MatchAny` (OR) ;
-- plusieurs `--filter` différents : `must` (AND) — ex. `entities=4405` **et** `doc_type=ees_phase_2`.
-
-Exemple :
-
-```bash
-rag-ingest query "niveaux de contamination" --filter entities=4405 --limit 8
-```
-
-Cela ne retourne **que** des chunks dont le payload `entities` contient exactement `4405`. Si LangExtract n’a pas produit ce n° (ou si le document n’a pas été ré-ingéré depuis le correctif d’alignement), le résultat est vide **même si** le Markdown parle du projet 4405 dans le vecteur. D’où l’obligation de ré-ingérer après un changement de schéma LangExtract / align.
-
----
-
-## 13. Invariants à retenir
-
-1. **Une chaîne Markdown**, trois systèmes de coordonnées alignés : pages (`PageSpan`), chunks (`start`/`end`), LangExtract (`char_interval`).
-2. **Le vecteur encode le texte** ; **le payload encode l’identité** (projet, type, dates locales).
-3. **Le n° de projet est une propriété du document**, pas du chunk : recopié partout pour le filtre.
-4. **`location` n’est pas dans Qdrant** aujourd’hui : une carte / un lot cadastral exigera un autre magasin (fiche SQL prévue) ou une extension d’alignement.
-5. **Changer `EMBED_MODEL`** impose une nouvelle collection ou un ré-ingest total : cosine entre deux espaces vectoriels différents n’a pas de sens.
-6. **LangExtract peut échouer** sans tuer l’indexation sémantique ; les filtres `entities=` seront alors inopérants.
-7. **OCR heavy** : le Markdown peut coller des colonnes de tableaux ou mélanger des en-têtes (`Projet n°: 5370` parasite). LangExtract et les embeddings héritent de ce bruit.
-
----
-
-## 14. Fichiers source (carte)
+Quality gates : Markdown vide ou 0 chunk → skip (CLI code `2`), pas d’upsert. LangExtract en exception → warning et **poursuite** (chunks + embeddings sans métadonnées). `--skip-extract` idem sans appeler Ollama.
 
 | Fichier | Responsabilité |
 |---|---|
@@ -569,89 +481,63 @@ rag-ingest query "contamination" --filter entities=4405 --filter doc_type=ees_ph
 rag-ingest query "HAM" --filter contaminants=HAM --filter doc_type=ees_phase_2
 ```
 
-Après modification du prompt LangExtract, des few-shots, ou de `align.py` (recopie des `project_id`), **ré-ingérer** les PDF concernés : l’ancien payload Qdrant ne se met pas à jour tout seul.
+### 2. Chunks
 
----
+`src/rag_ingestion/chunk.py`. Invariant : `markdown[start:end] == chunk.text`. Défauts : 2400 caractères, overlap 300. Recalage en fin de paragraphe / tableau Markdown. `chunk_id = {document_id}:{index}`. `heading_path` et `page` (page PDF au plus grand recouvrement).
 
-## 16. Prochaines étapes (plan, non implémenté)
+Le vecteur = ce texte. Pas de JSON LangExtract dans l’embedding.
 
-Cette section reprend la vision produit et le plan technique déjà discutés. Elle n’est **pas** un état du code. Tant qu’un item n’est pas livré, le comportement réel reste celui des § 1–15.
+### 3. LangExtract
 
-### 16.1 Vision produit
+`src/rag_ingestion/extract.py`. Schéma **uniquement** dans `config/langextract/prompt.txt` + `few_shots.json` (autre domaine = autres fichiers via `.env`). Chaque `extraction_text` de few-shot doit apparaître tel quel dans l’exemple `text`.
 
-L’interface cible a **trois panneaux** qui partagent un même état `focus` :
+Classes utiles ÉES : `title`, `doc_type`, `entity` (`project_id`, `firm`, `client`, …), `date` (`normalized` ISO, `role` : `report` / `fieldwork`), `topic`, `location` (`address`, `lot`, `city` = **site étudié**, pas le bureau de la firme).
 
-| Panneau | Question à laquelle il répond | Source de vérité |
-|---|---|---|
-| **Chatbot** | Quel passage du corpus répond à la question ? | Qdrant (chunks + vecteurs + payload) |
-| **Carte** | D’où vient ce rapport ? Quelle zone géographique ? | Fiche **site** (lot / adresse / lat-lon) |
-| **Historique (timeline)** | Quels travaux ont déjà été faits **sur cette zone** ? | Table **events** (dates typées) + documents du même `site_id` |
+### 4. Alignement
 
-Les sorties du chat **mettent à jour** la carte et la timeline. Un clic sur la carte ou un événement de timeline **resserre** le prochain tour RAG (filtre `document_id` / `project_id` / plus tard `site_id`).
+`src/rag_ingestion/align.py`. Étiquettes locales (entité, date, topic) seulement si l’intervalle LangExtract **recouvre** le chunk. `doc_type` et tous les `project_id` sont recopiés sur **chaque** chunk (`entities` + plus tard `project_id` payload). `location` n’est pas un champ de chunk : elle alimente la fiche document / le catalog.
 
-Cas métier qui justifie tout le reste : les rapports **2259** (Géosphère, 2024) et **4405** (Enviro-Experts, 2023) parlent du **même site** (même adresse, même lot cadastral, même campagne de forages 17 août 2019) mais sont **deux dossiers distincts**. Sur la carte ils doivent **fusionner** (un pin). En timeline ils doivent **rester distincts** (deux rapports, deux firmes, deux dates de remise). Un LLM qui « dump un JSON d’entités » à la fin de la réponse mélange déjà ces deux n° dans le fil de conversation : on ne lui confie **pas** cette vérité.
+### 5. Catalog + géocode
 
-### 16.2 Principe : trois couches, une seule vérité
+`src/rag_ingestion/document_meta.py` agrège au niveau document. `src/rag_ingestion/catalog.py` upsert :
 
-| Couche | Rôle | Qui l’écrit | Qui la lit |
-|---|---|---|---|
-| **Fiche document** | Identité du PDF : projet, firme, client, type, dates typées, lien vers le site | **Ingest** (LangExtract + normalisation), jamais le chatbot | API documents, enveloppe `POST /chat`, timeline |
-| **Fiche site** | Zone géographique + liste des documents de ce lieu | **Ingest** (lot / adresse → `site_id` + géocodage **une fois**) | Carte, `GET /sites`, jointure timeline |
-| **Focus de tour** | Quels docs / projets / sites le chat vient d’utiliser **dans ce tour** | API chat, dérivé des **hits Qdrant** (ToolMessage), **pas** du texte généré par le LLM | UI : zoom carte, filtre timeline, filtre RAG du tour suivant |
+- **sites** — `site_id`, lot, adresse, `lat`/`lon`, `geocode_status`
+- **documents** — un PDF = une ligne (`project_id`, firme, titre, `site_id`, …)
+- **events** — dates typées (`iso_date`, `role`, `label`) pour la timeline
 
-Règle d’or : le JSON d’entités que l’UI affiche **n’est jamais généré par le modèle de chat**. Il est lu dans la DB (ou, en attendant, dans une fiche disque enrichie) après jointure sur les `document_id` des hits.
+Géocodage Nominatim **à l’ingest seulement**, si `GEOCODE_ENABLED=1` et le site n’est pas déjà `ok` (`src/rag_ingestion/geocode.py`). Échec → site créé, pin absent (`geocode_status=failed` / `skipped`).
 
-### 16.3 Pourquoi une base SQL à l’ingest (et pas « tout dans Qdrant »)
+`data/documents/{id}.json` = journal (timings, chemins) **plus** un dump de la fiche métier. L’UI lit SQLite, pas ce JSON.
 
-Qdrant répond à : *quel passage ressemble à la question ?*  
-La carte et la timeline répondent à : *où est ce rapport, quand a-t-on travaillé sur ce lot, quels autres rapports sont sur la même zone ?*
+### 6–7. Embeddings et Qdrant
 
-Un vecteur ne fait pas bien :
+`embed.py` : `EMBED_MODEL` (repli FastEmbed `intfloat/multilingual-e5-large`). Dimension lue chez FastEmbed ; changer de modèle ⇒ autre collection ou ré-ingest complet.
 
-- une **jointure** par lot cadastral (2259 et 4405 → un seul site) ;
-- un **tri** par date typée (`report` vs `fieldwork`) ;
-- une requête **bbox** / rayon pour peupler la carte.
+`qdrant_store.py` : cosine, UUID v5 déterministe par chunk, delete-then-upsert. Payload : `text`, `document_id`, `page`, `heading_path`, `doc_type`, `entities`, `dates`, `topics`, `site_id`, `project_id`, `parse_quality`, offsets. Indexes KEYWORD + index TEXT sur `text` (branche hybride).
 
-Aujourd’hui :
+## Recherche
 
-- `data/documents/{id}.json` = journal d’ingest (chemins, compteurs, timings) — **pas** une fiche métier ;
-- `data/extractions/{id}.jsonl` = brut LangExtract, pas interrogeable par l’UI ;
-- `location` est extraite puis **jetée** à l’alignement (§ 7.3) ;
-- les dates dans le payload Qdrant n’ont **pas** de `role` (rapport vs forage).
+`src/rag_ingestion/retrieve.py` (CLI `rag-ingest query` et outil chat) :
 
-La DB **matérialise** ce que LangExtract a déjà (ou devrait) extraire. Ce n’est **pas** un second RAG.
+1. embedding de la question + recherche dense (filtres payload optionnels) ;
+2. si un n° de projet apparaît dans la question ou les filtres : deuxième requête **mot-clé** (`entities` / `project_id` / MatchText dans `text`), fusion des hits ;
+3. chatbot (`rag_hybrid_text`) : même branche mot-clé pour les termes d'identité (`client`, `firme`, `adresse`, …) ;
+4. chatbot (`rag_include_catalog`) : les fiches SQLite (client, firme, adresse, lot) sont **préfixées** au markdown de l'outil — c'est la source d'identité, pas uniquement les chunks.
 
-Ce qu’il **ne faut pas** y mettre :
+Le chatbot lit ces réglages dans `config/chatbot/settings.json` (`rag_limit`, `rag_prefetch`, `rag_score_threshold`, `temperature`, `top_p`).
 
-- le texte des chunks (ça reste Qdrant) ;
-- des écritures provenant du chatbot (hallucinations, mélange 2259/4405) ;
-- un géocodage à **chaque** question (une fois à l’ingest, puis lecture).
-
-Flux cible :
-
-```
-PDF → parse → chunks → LangExtract → align
-  → upsert fiche SQL (sites / documents / events) + géocodage si besoin
-  → embeddings → Qdrant (inchangé dans son rôle)
+```bash
+rag-ingest query "contamination 4405" --filter project_id=4405
+rag-ingest query "contamination" --filter site_id=lot:2363352
 ```
 
-Si LangExtract rate le lot, la fiche peut être incomplète ; les chunks restent cherchables. La qualité de la DB = qualité OCR + LangExtract + règles de normalisation.
+## Configuration ingest
 
-### 16.4 Quelle base
+`.env` à la racine, sinon `DEFAULT_*` dans `src/rag_ingestion/config.py`. Le plus utile :
 
-Pour ce dépôt **local** : **SQLite**, un fichier sous `data/` (ex. `data/catalog.sqlite`), zéro service Docker de plus.
+`QDRANT_URL`, `QDRANT_COLLECTION`, `EMBED_MODEL`, `OLLAMA_BASE_URL`, `LANGEXTRACT_*`, `OCR_*`, `CHUNK_*`, `DATA_DIR`, `INCOMING_DIR` / `ARCHIVE_DIR` / `FAILED_DIR`, `INGEST_SKIP_EXISTING`, `INGEST_SKIP_EXTRACT`, `GEOCODE_ENABLED`.
 
-Plus tard, si la carte exige rayon, polygone de lot, index spatial : **Postgres + PostGIS**. Inutile pour le premier jet (un point `lat`/`lon` par site).
-
-Éviter de « tout mettre dans le payload Qdrant » : payload = **filtre RAG** ; DB = **vérité métier + UI**. On pourra **aussi** recopier `site_id` dans le payload Qdrant plus tard, uniquement pour filtrer `search_knowledge` par zone — ce n’est pas un substitut aux tables.
-
-### 16.5 Schéma SQL minimal
-
-Trois tables, pas une mega-row par PDF.
-
-#### `sites` — la zone (clé carte + timeline)
-
-Un site = un lieu physique. Deux rapports sur le même lot = **une** ligne.
+Compose force `QDRANT_URL=http://qdrant:6333` et `DATA_DIR=/data` dans les conteneurs.
 
 | Colonne | Rôle |
 |---|---|
@@ -686,120 +572,11 @@ Règle de fusion : après normalisation du lot (ou de l’adresse), `INSERT … 
 
 Ré-ingest du même PDF : `ON CONFLICT(document_id) DO UPDATE` (symétrique du `delete_by_document_id` Qdrant). Les `events` de ce `document_id` sont remplacés (delete puis insert, ou upsert par clé composite).
 
-#### `events` — la timeline
-
-| Colonne | Rôle |
+| Code | `rag-ingest ingest` |
 |---|---|
-| `id` | PK interne (autoincrement ou UUID). |
-| `document_id` | FK. |
-| `site_id` | FK (dénormalisé pour `GET /sites/{id}/timeline` sans jointure lourde). |
-| `iso_date` | `YYYY-MM-DD`. |
-| `role` | `contract` \| `fieldwork` \| `report` — **obligatoire** pour la timeline. Alias d’ingest : `analysis` / `sampling` / `phase1` → `fieldwork`. Les dates `other` (entrevues, historique) ne sont pas persistées. |
-| `label` | Libellé optionnel (ex. « Campagne de forages »). |
+| 0 | Au moins un upsert Qdrant |
+| 1 | Erreur (fichier, Qdrant, …) |
+| 2 | Skip (Markdown / chunks vides) |
+| 130 | Ctrl-C |
 
-Sans `role` dans LangExtract (prompt + few-shots), cette table n’a pas de sens. C’est un prérequis d’extraction, pas seulement de SQL.
-
-### 16.6 Travail LangExtract / align à faire **avant** ou **avec** la DB
-
-Aujourd’hui le prompt extrait `location` et parfois `date.role` dans les few-shots, mais l’alignement **ignore** `location` et ne type pas les dates dans le payload.
-
-À ajouter côté ingest (code + prompt) :
-
-1. **Adresse et lot** : classes `location` (`address`, `lot`) agrégées au **niveau document** (comme `project_id`), pas seulement sur le chunk qui contient la phrase. Choisir le site étudié, pas le siège social de la firme (règle prompt + few-shots ÉES : « 619, route 341 » vs adresse Enviro-Experts / Géosphère).
-2. **`site_id`** calculé après normalisation (lot prioritaire).
-3. **Dates avec `role`** : `report`, `fieldwork`, etc. Recopiées dans `events`, pas seulement une liste plate `dates[]` dans Qdrant.
-4. **`title`, `firm`, `client`** : aujourd’hui `title` est dans `_DOC_LEVEL` mais **pas** dans `ChunkPayload` ; `firm`/`client` sont des `entity` locales. Il faut un agrégat **document** (première occurrence fiable, ou vote) pour remplir `documents`.
-5. Optionnel plus tard : recopier `site_id` dans le payload Qdrant + index KEYWORD, pour `search_knowledge` filtré par zone.
-
-Tant que 2259 et 4405 n’ont **pas** le même `site_id` après ré-ingest, **ne pas** enchaîner l’UI carte.
-
-### 16.7 Géocodage
-
-- Appelé **uniquement à l’ingest**, et **uniquement** si le site n’a pas encore de coordonnées.
-- Entrée : adresse du site (+ ville / province si besoin). Le lot seul ne géocode souvent pas ; l’adresse oui.
-- Sortie : `lat`/`lon` + `geocode_status`. Échec → site quand même créé, pin absent ou fallback (ville).
-- Ne pas géocoder depuis le chatbot.
-
-Le fournisseur (Nominatim, service interne, etc.) sera choisi à l’implémentation ; le contrat est : **un point par `site_id`**, pas un point par document.
-
-### 16.8 Chaîne d’ingest cible (étape supplémentaire)
-
-Entre l’alignement actuel (étape 4/6) et les embeddings (5/6), ou juste après l’alignement :
-
-1. Agréger les extractions **niveau document** (projet, titre, type, firme, client, adresse, lot, dates+rôles).
-2. Normaliser le lot / l’adresse → trouver ou créer `sites`.
-3. Géocoder si `lat`/`lon` absents.
-4. Upsert `documents`.
-5. Remplacer les `events` de ce `document_id`.
-6. Continuer embeddings + Qdrant comme aujourd’hui.
-
-La fiche `data/documents/{id}.json` peut rester un **journal d’ingest** (timings, chemins) **ou** être enrichie pour coller au schéma ci-dessus en attendant que l’API lise SQLite. La DB est la source pour l’UI ; le JSON disque ne doit pas diverger (soit il devient un dump de la ligne SQL, soit l’API ignore le JSON métier).
-
-### 16.9 Lien avec le chat (enveloppe HTTP)
-
-`POST /chat` **ne remplit pas** la DB. Après `graph.invoke` :
-
-1. Lire les ToolMessage / hits **retenus** de ce tour (respecter le plafond d’outils : union des hits du tour, pas 80 recherches).
-2. Extraire les `document_id`.
-3. **Joindre** SQLite → fiches + `site_id`.
-4. Répondre :
-
-```json
-{
-  "reply": "…texte du modèle…",
-  "thread_id": "…",
-  "focus": {
-    "document_ids": ["f2138…", "f95b…"],
-    "project_ids": ["4405", "2259"],
-    "site_ids": ["lot:2363352"]
-  },
-  "documents": [ { "fiches lues en DB" } ]
-}
-```
-
-L’UI : le chat affiche `reply` ; map et timeline se branchent sur `focus` + `documents`. Un clic carte/timeline met à jour `focus` et le prochain `search_knowledge` (filtres).
-
-Le REPL `rag-chat` peut afficher le JSON `focus` sous `assistant>` pour debug, sans attendre l’UI.
-
-### 16.10 API lecture (sans passer par le chat)
-
-Une fois la DB peuplée :
-
-| Endpoint | Usage |
-|---|---|
-| `GET /documents/{document_id}` | Fiche rapport |
-| `GET /sites/{site_id}` | Géométrie + `document_ids` |
-| `GET /sites/{site_id}/timeline` | `events` triés par `iso_date` (tous les travaux de la zone) |
-| `GET /sites?bbox=` | GeoJSON pour peupler la carte |
-
-Clic pin → `site_id` → timeline + filtre chat.  
-Clic événement → `document_id` / `project_id` → même filtre.
-
-Pas de second index vectoriel « pour la carte ».
-
-### 16.11 Ordre d’implémentation (le plus sûr)
-
-1. **Fiche document + `site_id` + dates typées** (SQLite `sites` / `documents` / `events`), **sans UI**. Ré-ingest des deux ÉES. Vérification manuelle : **même** `site_id`, **deux** `project_id`, deux dates de rapport distinctes, même date de forage si c’est le cas dans les PDF.
-2. **Géocodage à l’ingest** + `GET /sites` (point lat/lon).
-3. **Enveloppe `POST /chat`** (`focus` + fiches). REPL : JSON sous la réponse.
-4. **`GET /sites/{id}/timeline`**.
-5. **UI** trois panneaux branchée sur `focus`.
-
-Tant que l’étape 1 est fausse, la carte collera deux adresses de bureaux ou ignorera le lot, et l’historique mélangera date de rapport et date de chantier.
-
-### 16.12 Critère de succès mental (déjà testable une fois l’étape 1 livrée)
-
-Question « contamination 4405 » → `focus.project_ids = ["4405"]`, `site_ids = ["lot:…"]` → carte sur L’Épiphanie → timeline : forages 17 août 2019, rapport Enviro-Experts 3 jan 2023 — **et**, si l’UI affiche « tous les travaux du site » plutôt que « seulement le projet de la question », le 2259 Géosphère 3 jan 2024 sur la **même** zone.
-
-### 16.13 Rappel : état actuel vs plan
-
-| Élément | Aujourd’hui (code) | Cible |
-|---|---|---|
-| Qdrant chunks + `entities` (project_id global) | Oui | Conservé |
-| `location` dans payload / DB | Extraite, **ignorée** | Niveau document + `sites` |
-| Dates avec `role` | Rarement dans few-shots, **pas** en payload | Table `events` |
-| `data/documents/*.json` | Journal d’ingest | + fiche métier **ou** remplacé par SQLite |
-| SQLite `sites` / `documents` / `events` | **Non** | Écrit à l’ingest |
-| Géocodage | **Non** | Une fois par site |
-| `POST /chat` → `focus` | `{ reply, thread_id }` seulement | Hits → jointure DB |
-| UI carte / timeline | **Non** | Après API lecture |
+Après un changement de prompt LangExtract, de few-shots, ou de modèle d’embedding : **ré-ingérer** (éventuellement `watch --force` pour un SHA déjà au catalog).

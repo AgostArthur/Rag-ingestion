@@ -1,9 +1,9 @@
-# Production layout: chat API + inbox worker + Qdrant.
+# Production: UI + chat API + inbox worker + Qdrant.
 # LLM stays out of this file (cloud API key, or llama-server / Ollama on the host).
 #
 #   cp .env.example .env
 #   docker compose up -d --build
-#   # drop PDFs into ./incoming — the worker archives them after ingest
+#   # UI: http://localhost:3000  — drop PDFs into ./incoming
 #
 # Optional LangExtract via Ollama in Compose:
 #   docker compose --profile extract up -d
@@ -66,6 +66,19 @@ services:
   worker:
     <<: *app
     command: ["rag-ingest", "watch"]
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
+        VITE_GOOGLE_MAPS_MAP_ID: ${VITE_GOOGLE_MAPS_MAP_ID:-DEMO_MAP_ID}
+    ports:
+      - "${UI_PORT:-3000}:80"
+    depends_on:
+      - chat
+    restart: unless-stopped
 
   ollama:
     profiles: ["extract"]

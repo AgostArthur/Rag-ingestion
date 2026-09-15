@@ -17,5 +17,7 @@ tests
 docs
 examples
 canvases
+ui/node_modules
+ui/dist
 *.md
 !README.md

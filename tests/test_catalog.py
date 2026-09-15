@@ -5,6 +5,9 @@ from rag_ingestion.catalog import (
     get_document,
     get_site,
     get_site_timeline,
+    list_sites,
+    parse_bbox,
+    sites_geojson,
     upsert_document_meta,
 )
 from rag_ingestion.config import Settings
@@ -147,3 +150,52 @@ def test_document_exists(tmp_path: Path):
     upsert_document_meta(_meta(), settings=settings)
     assert document_exists("aaa", settings=settings) is True
     assert document_exists("bbb", settings=settings) is False
+
+
+def test_timeline_includes_document_fields(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(_meta(), settings=settings)
+    timeline = get_site_timeline("lot:2363352", settings=settings)
+    report = next(e for e in timeline if e["role"] == "report")
+    assert report["title"] == "ÉES phase II"
+    assert report["firm"] == "Enviro-Experts"
+    assert report["project_id"] == "4405"
+
+
+def test_list_sites_and_bbox(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(_meta(), settings=settings)
+    rows = list_sites(settings=settings)
+    assert len(rows) == 1
+    assert rows[0]["site_id"] == "lot:2363352"
+    assert rows[0]["document_ids"] == ["aaa"]
+    boxed = list_sites(bbox=(-80.0, 40.0, -70.0, 50.0), settings=settings)
+    assert boxed == []
+    assert parse_bbox(" -73.6,45.8,-73.4,45.9 ") == (-73.6, 45.8, -73.4, 45.9)
+
+
+def test_sites_geojson_skips_null_coords(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(_meta(), settings=settings)
+    geo = sites_geojson(list_sites(settings=settings))
+    assert geo["type"] == "FeatureCollection"
+    assert geo["features"] == []
+
+
+def test_geocode_on_upsert(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(
+        "rag_ingestion.geocode.geocode_address",
+        lambda *a, **k: (45.849, -73.482),
+    )
+    settings = _settings(tmp_path)
+    settings = Settings(
+        **{**settings.__dict__, "geocode_enabled": True},
+    )
+    upsert_document_meta(_meta(), settings=settings)
+    site = get_site("lot:2363352", settings=settings)
+    assert site is not None
+    assert site["lat"] == 45.849
+    assert site["lon"] == -73.482
+    assert site["geocode_status"] == "ok"
+    geo = sites_geojson([site])
+    assert geo["features"][0]["geometry"]["coordinates"] == [-73.482, 45.849]
