@@ -1,7 +1,7 @@
 """Chargement de la configuration depuis `.env` à la racine du dépôt.
 
-Tous les défauts vivent ici. Pour changer un paramètre : `.env` (prioritaire)
-ou la constante `DEFAULT_*` ci-dessous (si la clé est absente du `.env`).
+Tous les défauts vivent ici. Pour changer un paramètre : environnement
+(Compose / shell, prioritaire), sinon `.env`, sinon `DEFAULT_*` ci-dessous.
 """
 
 from __future__ import annotations
@@ -9,10 +9,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from dotenv import load_dotenv
 
-# --- Défauts (un seul endroit) : `.env` override ces valeurs ---
+# --- Défauts : env process > `.env` > ces constantes ---
 DEFAULT_QDRANT_URL = "http://localhost:6333"
 DEFAULT_QDRANT_COLLECTION = "chunks"
 DEFAULT_EMBED_MODEL = "BAAI/bge-m3"
@@ -46,9 +47,47 @@ _PROJECT_ROOT = _project_root()
 _ENV_PATH = _PROJECT_ROOT / ".env"
 
 
+def running_in_docker() -> bool:
+    """True si le process tourne dans un conteneur (fichier `/.dockerenv`)."""
+    return Path("/.dockerenv").exists()
+
+
+def rewrite_loopback_url(url: str, *, in_docker: bool | None = None) -> str:
+    """Ajuste l'hôte d'une URL loopback selon le runtime.
+
+    En local, `host.docker.internal` devient `localhost`.
+    Dans Docker, `localhost` / `127.0.0.1` deviennent `host.docker.internal`
+    (Ollama / llama-server sur la machine hôte). Les autres hôtes
+    (`qdrant`, `ollama`, `api.openai.com`, …) restent inchangés.
+    """
+    text = (url or "").strip()
+    if not text:
+        return text
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return text
+    docker = running_in_docker() if in_docker is None else in_docker
+    if docker and host in {"localhost", "127.0.0.1"}:
+        new_host = "host.docker.internal"
+    elif not docker and host == "host.docker.internal":
+        new_host = "localhost"
+    else:
+        return text
+    port = parsed.port
+    auth = ""
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth += f":{parsed.password}"
+        auth += "@"
+    netloc = f"{auth}{new_host}" + (f":{port}" if port else "")
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
 def _load_dotenv_file() -> None:
-    """Charge `.env` : les valeurs du fichier priment sur l'environnement."""
-    load_dotenv(_ENV_PATH, override=True)
+    """Charge `.env` sans écraser les variables déjà posées (Compose, shell)."""
+    load_dotenv(_ENV_PATH, override=False)
 
 
 def _int_env(key: str, default: int, *, minimum: int) -> int:
@@ -166,7 +205,9 @@ def load_settings() -> Settings:
         or DEFAULT_QDRANT_COLLECTION,
         embed_model=os.getenv("EMBED_MODEL", DEFAULT_EMBED_MODEL).strip() or DEFAULT_EMBED_MODEL,
         embed_dim=_int_env("EMBED_DIM", DEFAULT_EMBED_DIM, minimum=32),
-        ollama_base_url=os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).rstrip("/"),
+        ollama_base_url=rewrite_loopback_url(
+            os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL).rstrip("/")
+        ),
         langextract_model=os.getenv("LANGEXTRACT_MODEL", DEFAULT_LANGEXTRACT_MODEL).strip()
         or DEFAULT_LANGEXTRACT_MODEL,
         langextract_timeout_seconds=_float_env(

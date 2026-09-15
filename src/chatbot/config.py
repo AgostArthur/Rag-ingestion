@@ -3,8 +3,8 @@
 - `config/chatbot/prompt.txt` — prompt système de l'agent
 - `config/chatbot/settings.json` — llama-server, température, limites, API
 
-`.env` pointe vers ces fichiers (`CHAT_PROMPT_FILE`, `CHAT_SETTINGS_FILE`)
-et peut surcharger une clé JSON (même nom d'env que ci-dessous).
+`.env` complète les variables absentes (`CHAT_PROMPT_FILE`, `CHAT_SETTINGS_FILE`)
+et peut surcharger une clé JSON si la variable n'est pas déjà posée par Compose.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from rag_ingestion.config import rewrite_loopback_url
 
 DEFAULT_CHAT_PROMPT_FILE = "config/chatbot/prompt.txt"
 DEFAULT_CHAT_SETTINGS_FILE = "config/chatbot/settings.json"
@@ -51,8 +53,8 @@ _ENV_PATH = _PROJECT_ROOT / ".env"
 
 
 def _load_dotenv_file() -> None:
-    """Charge `.env` : les valeurs du fichier priment sur l'environnement."""
-    load_dotenv(_ENV_PATH, override=True)
+    """Charge `.env` sans écraser les variables déjà posées (Compose, shell)."""
+    load_dotenv(_ENV_PATH, override=False)
 
 
 def _resolve_path(raw: str, default: str) -> Path:
@@ -170,13 +172,15 @@ def load_chat_settings() -> ChatSettings:
     )
     data = load_settings_file(settings_file)
     return ChatSettings(
-        llama_server_base_url=_str_from(
-            data,
-            "llama_server_base_url",
-            "http://localhost:8080/v1",
-            extra_env=("OPENAI_BASE_URL",),
-        ).rstrip("/")
-        or "http://localhost:8080/v1",
+        llama_server_base_url=rewrite_loopback_url(
+            _str_from(
+                data,
+                "llama_server_base_url",
+                "http://localhost:8080/v1",
+                extra_env=("OPENAI_BASE_URL",),
+            ).rstrip("/")
+            or "http://localhost:8080/v1"
+        ),
         llama_server_model=_str_from(
             data, "llama_server_model", "local", extra_env=("OPENAI_MODEL",)
         ),

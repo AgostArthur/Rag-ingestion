@@ -72,7 +72,9 @@ Sans Qdrant, l’étape 6 échoue. Sans Ollama, LangExtract lève une exception 
 
 La configuration est lue par `load_settings()` (`src/rag_ingestion/config.py`) :
 
-- fichier `.env` à la racine du dépôt, **prioritaire** (`load_dotenv(..., override=True)`) ;
+- fichier `.env` à la racine du dépôt (complète les variables absentes) ;
+- variables déjà posées par le shell ou Compose **non écrasées** ;
+- `localhost` / `host.docker.internal` pour Ollama sont réécrits selon que le process est dans Docker ou non ;
 - sinon constantes `DEFAULT_*` dans `config.py`.
 
 Paramètres qui changent réellement le comportement d’ingest :

@@ -32,11 +32,11 @@ PREFETCH_EMBED=1 docker compose build
 docker compose up -d
 ```
 
-LLM hors image :
+LLM hors image. Dans `.env`, utilise **`localhost`**. Dans Compose, `localhost` est réécrit vers `host.docker.internal` (Ollama / llama-server sur le Mac) :
 
-- llama-server **sur l’hôte** : `LLAMA_SERVER_BASE_URL=http://host.docker.internal:8080/v1`
-- Ollama **sur l’hôte** : `OLLAMA_BASE_URL=http://host.docker.internal:11434`
-- Ollama **dans Compose** : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://ollama:11434`
+- llama-server **sur l’hôte** : `LLAMA_SERVER_BASE_URL=http://localhost:8080/v1`
+- Ollama **sur l’hôte** : `OLLAMA_BASE_URL=http://localhost:11434` et chat `OPENAI_BASE_URL=http://localhost:11434/v1`
+- Ollama **dans Compose** : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://ollama:11434` (hostname `ollama`, non réécrit)
 - Sans Ollama : `INGEST_SKIP_EXTRACT=1` (chunks + embeddings seulement)
 
 `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `OPENAI_MODEL` priment sur `LLAMA_SERVER_*` s’ils sont définis.
