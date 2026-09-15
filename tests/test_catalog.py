@@ -23,8 +23,8 @@ def _settings(tmp_path: Path) -> Settings:
         ollama_base_url="http://localhost:11434",
         langextract_model="x",
         langextract_timeout_seconds=1.0,
-        langextract_prompt_file=Path("config/langextract/prompt.txt"),
-        langextract_few_shots_file=Path("config/langextract/few_shots.json"),
+        langextract_prompt_file=Path("config/langextract/prompt.base.txt"),
+        langextract_few_shots_file=Path("config/langextract/profiles/default/few_shots.json"),
         ocr_language="fra",
         ocr_server_url=None,
         ocr_heavy_ratio=0.5,
@@ -50,10 +50,12 @@ def _meta(**overrides: object) -> DocumentMeta:
         city="L'Épiphanie",
         site_id="lot:2363352",
         report_date="2023-01-03",
-        events=[
-            TypedEvent(iso_date="2023-01-03", role="report", label="3 janvier 2023"),
-            TypedEvent(iso_date="2019-08-17", role="fieldwork", label="17 août 2019"),
-        ],
+            events=[
+                TypedEvent(iso_date="2023-01-03", role="report", label="3 janvier 2023"),
+                TypedEvent(iso_date="2019-08-17", role="fieldwork", label="17 août 2019"),
+                TypedEvent(iso_date="2019-06-05", role="contract", label="5 juin 2019"),
+            ],
+            contaminants=["HAM"],
     )
     base.update(overrides)
     return DocumentMeta(**base)  # type: ignore[arg-type]
@@ -80,6 +82,7 @@ def test_two_projects_same_lot_share_site(tmp_path: Path):
     b = get_document("bbb", settings=settings)
     assert a is not None and b is not None
     assert a["project_id"] == "4405"
+    assert a["contaminants"] == ["HAM"]
     assert b["project_id"] == "2259"
     assert a["site_id"] == b["site_id"] == "lot:2363352"
     site = get_site("lot:2363352", settings=settings)
@@ -91,6 +94,22 @@ def test_two_projects_same_lot_share_site(tmp_path: Path):
     assert ("2024-01-03", "report", "bbb") in roles
     assert ("2019-08-17", "fieldwork", "aaa") in roles
     assert ("2019-08-17", "fieldwork", "bbb") in roles
+    assert ("2019-06-05", "contract", "aaa") in roles
+
+
+def test_timeline_skips_non_timeline_roles(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(
+        _meta(
+            events=[
+                TypedEvent(iso_date="2023-01-03", role="report", label="rapport"),
+                TypedEvent(iso_date="2021-04-30", role="other", label="entrevues"),
+            ]
+        ),
+        settings=settings,
+    )
+    timeline = get_site_timeline("lot:2363352", settings=settings)
+    assert [e["role"] for e in timeline] == ["report"]
 
 
 def test_address_only_document_joins_existing_lot_site(tmp_path: Path):

@@ -87,6 +87,11 @@ def format_hits(
             lines.append(f"- section: {heading}")
         if entity_s:
             lines.append(f"- entities: {entity_s}")
+        contaminants = hit.get("contaminants") or []
+        if contaminants:
+            lines.append(
+                "- contaminants: " + ", ".join(str(c) for c in contaminants)
+            )
         lines.append("")
         lines.append(text)
         parts.append("\n".join(lines))
@@ -153,6 +158,7 @@ def _filters_from_args(
     document_id: str = "",
     site_id: str = "",
     project_id: str = "",
+    contaminants: str = "",
 ) -> dict[str, str]:
     """Construit le dict de filtres Qdrant à partir des arguments d'outil."""
     filters: dict[str, str] = {}
@@ -166,6 +172,8 @@ def _filters_from_args(
         filters["site_id"] = site_id.strip()
     if project_id.strip():
         filters["project_id"] = project_id.strip()
+    if contaminants.strip():
+        filters["contaminants"] = contaminants.strip()
     return filters
 
 
@@ -208,6 +216,7 @@ def build_search_tool(settings: ChatSettings | None = None):
         document_id: str = "",
         site_id: str = "",
         project_id: str = "",
+        contaminants: str = "",
         limit: int = 0,
     ) -> str:
         """Search the local RAG knowledge base for relevant document chunks.
@@ -220,12 +229,14 @@ def build_search_tool(settings: ChatSettings | None = None):
 
         Args:
             query: Natural-language search phrase (not keywords only).
-            doc_type: Optional payload filter (e.g. rapport, ees_phase_2).
+            doc_type: Optional payload filter (e.g. rapport, ees_phase_1,
+                ees_phase_2). Same id as LangExtract `--profile`.
             entities: Optional exact entity filter; comma-separated names
                 or project numbers (e.g. 4405).
             document_id: Optional SHA-256 document id to restrict the search.
             site_id: Optional catalog site id (e.g. lot:2363352).
             project_id: Optional project number filter.
+            contaminants: Optional detected contaminant filter (e.g. HAM, HAP).
             limit: Max chunks to return; 0 uses the configured default.
         """
         n = limit if limit and limit > 0 else default_limit
@@ -236,10 +247,15 @@ def build_search_tool(settings: ChatSettings | None = None):
         hits = retrieve_search(
             query,
             limit=n,
-            filters=filters or None,
-            prefetch=prefetch,
-            score_threshold=score_threshold,
-            hybrid_text=hybrid_text,
+            filters=_filters_from_args(
+                doc_type,
+                entities,
+                document_id,
+                site_id,
+                project_id,
+                contaminants,
+            )
+            or None,
         )
         chunks = format_hits(
             hits,

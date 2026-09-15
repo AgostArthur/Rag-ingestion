@@ -54,6 +54,36 @@ def project_id_label(ext: GroundedExtraction) -> str | None:
     return None
 
 
+def _topic_kind(ext: GroundedExtraction) -> str:
+    raw = (ext.attributes or {}).get("kind")
+    return raw.strip().lower() if isinstance(raw, str) else ""
+
+
+def contaminant_label(ext: GroundedExtraction) -> str | None:
+    """Label d'une contamination détectée (`topic` + `kind=contaminant`)."""
+    if ext.extraction_class != "topic":
+        return None
+    if _topic_kind(ext) != "contaminant":
+        return None
+    label = _label(ext)
+    return label or None
+
+
+def _doc_contaminants(extractions: list[GroundedExtraction]) -> list[str]:
+    """Contaminants au niveau document (recopiés sur tous les chunks)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for ext in extractions:
+        label = contaminant_label(ext)
+        if not label:
+            continue
+        key = label.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(label)
+    return out
+
+
 def _doc_project_ids(extractions: list[GroundedExtraction]) -> list[str]:
     """N° de projet au niveau document (recopiés sur tous les chunks)."""
     out: list[str] = []
@@ -78,7 +108,7 @@ def align_extractions(
 ) -> list[ChunkPayload]:
     """Rattache à chaque chunk uniquement les extractions dont le span recouvre.
 
-    `doc_type` et les n° de projet (`entity` type=project_id) sont recopiés sur
+    `doc_type`, les n° de projet et les contaminants détectés sont recopiés sur
     tous les chunks (niveau document), y compris s'ils ne sont pas ancrés.
     Les autres entités non ancrées ne sont pas copiées.
 
@@ -98,6 +128,7 @@ def align_extractions(
     ]
     doc_type = doc_types[0] if doc_types else None
     project_ids = _doc_project_ids(extractions)
+    contaminants = _doc_contaminants(extractions)
 
     payloads: list[ChunkPayload] = []
     for chunk in chunks:
@@ -115,7 +146,7 @@ def align_extractions(
                 if ext.extraction_class == "doc_type":
                     ids.append(ext.extraction_id)
                 continue
-            if project_id_label(ext):
+            if project_id_label(ext) or contaminant_label(ext):
                 ids.append(ext.extraction_id)
                 continue
             if ext.grounded and not _overlaps(ext, chunk):
@@ -152,6 +183,7 @@ def align_extractions(
                 extraction_ids=ids,
                 parse_quality=parse_quality,
                 source_path=source_path,
+                contaminants=list(contaminants),
             )
         )
     return payloads

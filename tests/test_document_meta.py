@@ -67,6 +67,30 @@ def test_build_document_meta_lot_and_typed_dates():
             end=92,
             attributes={"normalized": "2019-08-17", "role": "fieldwork"},
         ),
+        GroundedExtraction(
+            extraction_id="k",
+            extraction_class="date",
+            extraction_text="5 juin 2019",
+            start=93,
+            end=104,
+            attributes={"normalized": "2019-06-05", "role": "contract"},
+        ),
+        GroundedExtraction(
+            extraction_id="o",
+            extraction_class="date",
+            extraction_text="30 avril 2021",
+            start=105,
+            end=118,
+            attributes={"normalized": "2021-04-30", "role": "other"},
+        ),
+        GroundedExtraction(
+            extraction_id="c",
+            extraction_class="topic",
+            extraction_text="HAM",
+            start=120,
+            end=123,
+            attributes={"kind": "contaminant"},
+        ),
     ]
     meta = build_document_meta(
         extractions,
@@ -82,9 +106,12 @@ def test_build_document_meta_lot_and_typed_dates():
     assert meta.address == "619, route 341, L'Épiphanie"
     assert meta.site_id == "lot:2363352"
     assert meta.report_date == "2023-01-03"
+    assert meta.contaminants == ["HAM"]
     roles = {e.role: e.iso_date for e in meta.events}
     assert roles["report"] == "2023-01-03"
     assert roles["fieldwork"] == "2019-08-17"
+    assert roles["contract"] == "2019-06-05"
+    assert "other" not in roles
 
 
 def test_stamp_payloads_copies_site_and_project():
@@ -136,3 +163,26 @@ def test_stamp_payloads_copies_site_and_project():
     stamp_payloads(payloads, meta)
     assert payloads[0].site_id == "lot:2363352"
     assert payloads[0].project_id == "4405"
+    assert payloads[0].contaminants == []
+
+
+def test_analysis_date_alias_becomes_fieldwork_event():
+    meta = build_document_meta(
+        [
+            GroundedExtraction(
+                extraction_id="a",
+                extraction_class="date",
+                extraction_text="17 août 2019",
+                start=None,
+                end=None,
+                attributes={"normalized": "2019-08-17", "role": "analysis"},
+            ),
+        ],
+        document_id="doc",
+        source_path="/tmp/a.pdf",
+        parse_quality="ok",
+    )
+    assert [(e.role, e.iso_date) for e in meta.events] == [
+        ("fieldwork", "2019-08-17")
+    ]
+

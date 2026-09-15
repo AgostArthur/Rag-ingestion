@@ -28,6 +28,22 @@ def _settings(**overrides: object) -> ChatSettings:
         settings_file=Path("config/chatbot/settings.json"),
         project_root=Path("."),
     )
+
+
+def test_root_is_not_404(monkeypatch):
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr("chatbot.api.build_graph", lambda settings: object())
+    from chatbot.api import create_app
+
+    client = TestClient(create_app(_settings()))
+    response = client.get("/")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["health"] == "/health"
+    assert body["chat"] == "POST /chat"
+    assert client.get("/favicon.ico").status_code == 204
     base.update(overrides)
     return ChatSettings(**base)  # type: ignore[arg-type]
 

@@ -50,6 +50,24 @@ rag-chat serve
 cd ui && npm install && npm run dev
 ```
 
+## Embeddings / LangExtract
+
+Changer `EMBED_MODEL` dans `.env` (dimension lue chez FastEmbed). Ré-ingérer après un changement de modèle.
+
+Si le nom n’est pas dans FastEmbed, repli `intfloat/multilingual-e5-large`.
+
+Schéma LangExtract : `config/langextract/profiles.json` (prompt de base + addendum + few-shots par profil). Le nom du PDF choisit le profil (motifs dans `profiles.json`) ; sinon `default` (warning). Chaque ingest logue `type=` et `fichier=`. L’identifiant est le même que `doc_type` Qdrant : `ees_phase_1` / `ees_phase_2`. Override : `rag-ingest ingest fichier.pdf --profile ees_phase_1`. Chaque `extraction_text` de few-shot doit apparaître tel quel dans `text`.
+
+Détail du pipeline : `[docs/ingestion.md](docs/ingestion.md)`.
+
+## Chat
+
+Le LLM n’a pas les chunks dans le prompt. Compatible **OpenAI HTTP** (`OPENAI_`* ou `LLAMA_SERVER_*`). llama-server local : `llama-server --jinja -fa -m modele.gguf --port 8080`.
+
+```bash
+rag-chat          # REPL ; JSON focus sous la réponse
+rag-chat serve    # POST /chat → { reply, thread_id, focus, documents, citations }
+```
 Vite proxy `/chat`, `/sites`, `/documents` vers `:8000`. Clé Maps : `ui/.env.local` avec `VITE_GOOGLE_MAPS_API_KEY=`.
 
 Documentation : [`docs/README.md`](docs/README.md) (pipeline, catalog, API, UI).

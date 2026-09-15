@@ -35,6 +35,7 @@ _INDEXED_FIELDS: tuple[tuple[str, PayloadSchemaType], ...] = (
     ("parse_quality", PayloadSchemaType.KEYWORD),
     ("site_id", PayloadSchemaType.KEYWORD),
     ("project_id", PayloadSchemaType.KEYWORD),
+    ("contaminants", PayloadSchemaType.KEYWORD),
     ("text", PayloadSchemaType.TEXT),
 )
 
@@ -50,6 +51,7 @@ _FILTER_KEYS = frozenset(
         "page",
         "site_id",
         "project_id",
+        "contaminants",
     }
 )
 
@@ -200,6 +202,7 @@ def upsert_payloads(
             "char_end": chunk.end,
             "site_id": item.site_id,
             "project_id": item.project_id,
+            "contaminants": item.contaminants,
         }
         points.append(
             PointStruct(
@@ -222,7 +225,7 @@ def build_filter(filters: dict[str, str]) -> Filter | None:
     """Construit un filtre Qdrant à partir de `clé=valeur` (virgules = MatchAny).
 
     Clés autorisées : document_id, source_path, doc_type, entities, dates,
-    heading_path, parse_quality, page, site_id, project_id.
+    heading_path, parse_quality, page, site_id, project_id, contaminants.
 
     Args:
         filters: Mapping clé → valeur brute (page en entier, listes en CSV).
@@ -305,6 +308,7 @@ def search_similar(
                 "dates": pl.get("dates") or [],
                 "site_id": pl.get("site_id"),
                 "project_id": pl.get("project_id"),
+                "contaminants": pl.get("contaminants") or [],
                 "chunk_id": pl.get("chunk_id"),
             }
         )

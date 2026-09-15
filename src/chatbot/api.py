@@ -59,6 +59,22 @@ def create_app(settings: ChatSettings | None = None):
         allow_headers=["*"],
     )
 
+    @app.get("/")
+    def root() -> dict[str, Any]:
+        """Index JSON : le navigateur ouvre `/`, pas `/health`."""
+        return {
+            "service": "RAG chat",
+            "docs": "/docs",
+            "health": "/health",
+            "chat": "POST /chat",
+        }
+
+    @app.get("/favicon.ico")
+    def favicon():
+        from fastapi.responses import Response
+
+        return Response(status_code=204)
+
     @app.get("/health")
     def health() -> dict[str, Any]:
         return collect_health(s)

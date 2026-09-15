@@ -14,6 +14,7 @@ from rag_ingestion.config import Settings, load_settings
 from rag_ingestion.document_meta import build_document_meta, stamp_payloads
 from rag_ingestion.embed import embed_texts, embedding_dimension
 from rag_ingestion.extract import extract_structured
+from rag_ingestion.extract_profile import resolve_extract_schema
 from rag_ingestion.logging_setup import StepTimer
 from rag_ingestion.models import DocumentMeta, GroundedExtraction, IngestResult
 from rag_ingestion.parse import parse_pdf
@@ -73,6 +74,7 @@ def _write_parent(
                 "lot_cadastral": meta.lot_cadastral,
                 "city": meta.city,
                 "report_date": meta.report_date,
+                "contaminants": meta.contaminants,
                 "events": [
                     {"iso_date": e.iso_date, "role": e.role, "label": e.label}
                     for e in meta.events
@@ -122,6 +124,7 @@ def ingest_path(
     *,
     settings: Settings | None = None,
     skip_extract: bool = False,
+    extract_profile: str | None = None,
 ) -> IngestResult:
     """Ingest un PDF : parse, chunk, extrait, catalog, embed, upsert (un point par chunk).
 
@@ -133,6 +136,7 @@ def ingest_path(
         path: Chemin du PDF.
         settings: Config ; `.env` si omis.
         skip_extract: Si True, n'appelle pas LangExtract.
+        extract_profile: Profil LangExtract (`--profile`) ; sinon déduit du nom.
 
     Returns:
         Compte-rendu (`n_chunks`, extractions, `parse_quality`, timings).
@@ -221,11 +225,24 @@ def ingest_path(
             "langextract",
             f"Step 3/7 — Structured extraction (Ollama {s.langextract_model})…",
         ):
+            schema = resolve_extract_schema(
+                path,
+                markdown=parsed.markdown,
+                override=extract_profile,
+                settings=s,
+            )
+            if schema.match_source == "default":
+                warnings.append(
+                    f"LangExtract type={schema.profile_id}  fichier=« {path.name} »  "
+                    f"source=default — aucun motif de profil n'a matché"
+                )
             try:
                 extractions = extract_structured(
                     parsed.markdown,
                     document_id=parsed.document_id,
+                    source_path=path,
                     settings=s,
+                    schema=schema,
                 )
             except Exception as exc:
                 warnings.append(f"LangExtract failed: {exc}")
@@ -371,6 +388,7 @@ def ingest_many(
     *,
     settings: Settings | None = None,
     skip_extract: bool = False,
+    extract_profile: str | None = None,
 ) -> list[IngestResult]:
     """Ingest une liste de PDF ; une exception n'interrompt pas le lot."""
     s = settings or load_settings()
@@ -378,7 +396,14 @@ def ingest_many(
     for index, path in enumerate(paths, start=1):
         logger.info("Batch ingest %s/%s — %s", index, len(paths), path.name)
         try:
-            results.append(ingest_path(path, settings=s, skip_extract=skip_extract))
+            results.append(
+                ingest_path(
+                    path,
+                    settings=s,
+                    skip_extract=skip_extract,
+                    extract_profile=extract_profile,
+                )
+            )
         except Exception as exc:
             logger.exception("Batch item failed: %s", path)
             results.append(

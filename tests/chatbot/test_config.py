@@ -27,6 +27,11 @@ def test_load_default_prompt():
     text = load_prompt(DEFAULT_PROMPT)
     assert "search_knowledge" in text
     assert "RAG" in text
+    assert "--filter doc_type=ees_phase_2" in text
+    assert "--filter contaminants=HAM" in text
+    assert 'doc_type="ees_phase_2"' in text
+    assert "project_id" in text
+    assert "site_id" in text
 
 
 def test_load_default_settings():

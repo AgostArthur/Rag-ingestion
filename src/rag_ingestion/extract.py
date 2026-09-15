@@ -1,14 +1,17 @@
-"""Schéma LangExtract : prompt + few-shots chargés depuis les fichiers du `.env`."""
+"""Schéma LangExtract : chargement des fichiers de config et appel Ollama."""
 
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rag_ingestion.config import Settings, load_settings
 from rag_ingestion.models import GroundedExtraction
+
+if TYPE_CHECKING:
+    from rag_ingestion.extract_profile import ExtractSchema
 
 logger = logging.getLogger(__name__)
 
@@ -153,17 +156,23 @@ def extract_structured(
     markdown: str,
     *,
     document_id: str,
+    source_path: Path,
     settings: Settings | None = None,
+    profile_override: str | None = None,
+    schema: ExtractSchema | None = None,
 ) -> list[GroundedExtraction]:
     """Extrait des métadonnées via LangExtract (Ollama) et sauve JSONL + HTML.
 
-    Prompt et few-shots viennent de `LANGEXTRACT_PROMPT_FILE` et
-    `LANGEXTRACT_FEW_SHOTS_FILE` (voir `.env`).
+    Le prompt et les few-shots viennent du profil résolu (nom de fichier,
+    heading Markdown, ou `--profile`). Voir `config/langextract/profiles.json`.
 
     Args:
         markdown: Texte source (même chaîne que celle chunkée ensuite).
         document_id: Nom des artefacts `data/extractions/{id}.jsonl|.html`.
+        source_path: PDF d'origine ; son nom sélectionne le profil.
         settings: Config Ollama / chemins ; `.env` si omis.
+        profile_override: Identifiant de profil (CLI `--profile`).
+        schema: Schéma déjà résolu ; sinon calculé ici.
 
     Returns:
         Extractions (classe, texte, offsets si le modèle a ancré). Liste vide
@@ -175,8 +184,16 @@ def extract_structured(
 
     import langextract as lx
 
-    prompt = load_prompt(s.langextract_prompt_file)
-    examples = load_few_shots(s.langextract_few_shots_file)
+    from rag_ingestion.extract_profile import resolve_extract_schema
+
+    resolved = schema or resolve_extract_schema(
+        source_path,
+        markdown=markdown,
+        override=profile_override,
+        settings=s,
+    )
+    prompt = resolved.prompt
+    examples = resolved.examples
     logger.info(
         "  Calling Ollama %s (%s characters, timeout %ss)…",
         s.langextract_model,
@@ -184,9 +201,11 @@ def extract_structured(
         int(s.langextract_timeout_seconds),
     )
     logger.info(
-        "  LangExtract prompt=%s · few-shots=%s (%s example(s))",
-        s.langextract_prompt_file,
-        s.langextract_few_shots_file,
+        "  LangExtract type=%s  fichier=« %s »  source=%s · few-shots=%s (%s example(s))",
+        resolved.profile_id,
+        resolved.source_name,
+        resolved.match_source,
+        resolved.few_shots_path,
         len(examples),
     )
     result = lx.extract(

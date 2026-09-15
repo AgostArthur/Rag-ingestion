@@ -92,6 +92,7 @@ class ChunkPayload:
     source_path: str
     site_id: str | None = None
     project_id: str | None = None
+    contaminants: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,7 @@ class DocumentMeta:
     site_id: str | None = None
     report_date: str | None = None
     events: list[TypedEvent] = field(default_factory=list)
+    contaminants: list[str] = field(default_factory=list)
 
     @property
     def project_id(self) -> str | None:
