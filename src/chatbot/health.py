@@ -1,4 +1,4 @@
-"""Health-checks : Qdrant, catalog SQLite, llama-server."""
+"""Health-checks : Qdrant, catalog SQLite, LLM chat."""
 
 from __future__ import annotations
 
@@ -52,13 +52,17 @@ def collect_health(chat: ChatSettings | None = None) -> dict[str, object]:
         overall = "error"
     elif not l_ok:
         overall = "degraded"
+    llm = {
+        "ok": l_ok,
+        "detail": l_detail,
+        "provider": getattr(chat_settings, "llm_provider", "local"),
+        "model": chat_settings.llama_server_model,
+        "url": chat_settings.llama_server_base_url,
+    }
     return {
         "status": overall,
         "qdrant": {"ok": q_ok, "detail": q_detail, "url": ingest.qdrant_url},
         "catalog": {"ok": c_ok, "detail": c_detail},
-        "llama_server": {
-            "ok": l_ok,
-            "detail": l_detail,
-            "url": chat_settings.llama_server_base_url,
-        },
+        "llm": llm,
+        "llama_server": llm,
     }

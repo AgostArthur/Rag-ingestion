@@ -10,9 +10,8 @@ Pipeline : PDF → LiteParse (OCR) → Markdown → chunks + LangExtract → **c
 
 ```bash
 cp .env.example .env
-# OPENAI_BASE_URL=https://api.openai.com/v1
-# OPENAI_API_KEY=sk-...
-# OPENAI_MODEL=gpt-4o-mini
+# LLM_PROVIDER=gemini          # ou openai | ollama | local
+# GEMINI_API_KEY=...           # ou OPENAI_API_KEY + OPENAI_MODEL
 # VITE_GOOGLE_MAPS_API_KEY=...   # rebuild UI after changing this
 
 docker compose up -d --build
@@ -25,7 +24,16 @@ docker compose up -d --build
 
 Image embeddings préchargée : `PREFETCH_EMBED=1 docker compose build`
 
-LLM hors image : llama-server / Ollama sur l’hôte (`host.docker.internal`), ou `docker compose --profile extract up -d` avec `OLLAMA_BASE_URL=http://ollama:11434`. Sans Ollama : `INGEST_SKIP_EXTRACT=1`.
+LLM hors image (chat + LangExtract). Un switch dans `.env` :
+
+| `LLM_PROVIDER` | Chat | LangExtract |
+|---|---|---|
+| `local` (défaut) | llama-server (`LLAMA_SERVER_*`) | Ollama (`OLLAMA_BASE_URL`) |
+| `ollama` | Ollama `/v1` | Ollama |
+| `openai` | API OpenAI (ou tout `/v1`) | LangExtract OpenAI |
+| `gemini` | SDK natif (`langchain-google-genai`) | LangExtract Gemini |
+
+Overrides : `CHAT_PROVIDER`, `LANGEXTRACT_PROVIDER`. Embeddings FastEmbed **inchangés** (locaux). Sans LLM local : `INGEST_SKIP_EXTRACT=1` ou une clé cloud. Ollama dans Compose : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://ollama:11434`.
 
 ## Ingest
 
@@ -62,7 +70,7 @@ Détail du pipeline : `[docs/ingestion.md](docs/ingestion.md)`.
 
 ## Chat
 
-Le LLM n’a pas les chunks dans le prompt. Compatible **OpenAI HTTP** (`OPENAI_`* ou `LLAMA_SERVER_*`). llama-server local : `llama-server --jinja -fa -m modele.gguf --port 8080`.
+Le LLM n’a pas les chunks dans le prompt. Provider : `LLM_PROVIDER` (`local` / `ollama` / `openai` / `gemini`). llama-server local : `llama-server --jinja -fa -m modele.gguf --port 8080`.
 
 ```bash
 rag-chat          # REPL ; JSON focus sous la réponse

@@ -1,5 +1,5 @@
 # Production: UI + chat API + inbox worker + Qdrant.
-# LLM stays out of this file (cloud API key, or llama-server / Ollama on the host).
+# LLM stays out of this file: set LLM_PROVIDER in `.env` (local / ollama / openai / gemini).
 #
 #   cp .env.example .env
 #   docker compose up -d --build
@@ -21,9 +21,7 @@ x-app-env: &app-env
   CHAT_API_HOST: 0.0.0.0
   CHAT_API_PORT: "8000"
   CHAT_CHECKPOINT_DB: /data/chat_checkpoints.sqlite
-  # Ollama / llama-server sur l'hôte (localhost dans `.env` est réécrit aussi).
-  OLLAMA_BASE_URL: http://host.docker.internal:11434
-  LLAMA_SERVER_BASE_URL: http://host.docker.internal:11434/v1
+  # LLM : `.env` (`LLM_PROVIDER`). localhost y est réécrit vers host.docker.internal.
 
 x-app: &app
   image: rag-ingestion:local
@@ -62,6 +60,12 @@ services:
     ports:
       - "${CHAT_API_PORT:-8000}:8000"
     command: ["rag-chat", "serve", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
 
   worker:
     <<: *app
@@ -77,7 +81,8 @@ services:
     ports:
       - "${UI_PORT:-3000}:80"
     depends_on:
-      - chat
+      chat:
+        condition: service_healthy
     restart: unless-stopped
 
   ollama:

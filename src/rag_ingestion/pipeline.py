@@ -223,7 +223,7 @@ def ingest_path(
     else:
         with timer.step(
             "langextract",
-            f"Step 3/7 — Structured extraction (Ollama {s.langextract_model})…",
+            f"Step 3/7 — Structured extraction ({s.langextract_model})…",
         ):
             schema = resolve_extract_schema(
                 path,

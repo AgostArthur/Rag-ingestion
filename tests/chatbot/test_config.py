@@ -49,6 +49,7 @@ def test_load_default_settings():
     assert "rag_score_threshold" in data
     assert data["rag_include_catalog"] is True
     assert data["rag_hybrid_text"] is True
+    assert data["llm_provider"] == "local"
 
 
 def test_load_chat_settings_reads_precision_flags():
