@@ -244,14 +244,7 @@ def build_search_tool(settings: ChatSettings | None = None):
         n = limit if limit and limit > 0 else default_limit
         n = max(1, min(int(n), _MAX_RAG_LIMIT))
         filters = apply_ui_focus_filters(
-            _filters_from_args(doc_type, entities, document_id, site_id, project_id)
-        )
-        timer = get_turn_timer()
-        t0 = time.perf_counter()
-        hits = retrieve_search(
-            query,
-            limit=n,
-            filters=_filters_from_args(
+            _filters_from_args(
                 doc_type,
                 entities,
                 document_id,
@@ -259,7 +252,16 @@ def build_search_tool(settings: ChatSettings | None = None):
                 project_id,
                 contaminants,
             )
-            or None,
+        )
+        timer = get_turn_timer()
+        t0 = time.perf_counter()
+        hits = retrieve_search(
+            query,
+            limit=n,
+            filters=filters or None,
+            prefetch=prefetch,
+            score_threshold=score_threshold,
+            hybrid_text=hybrid_text,
         )
         if timer is not None:
             record_step(timer, "rag_retrieve", time.perf_counter() - t0)
