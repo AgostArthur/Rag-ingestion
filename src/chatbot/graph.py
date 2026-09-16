@@ -125,7 +125,7 @@ def recursion_limit_for(max_tool_calls: int) -> int:
 
 
 def build_graph(settings: ChatSettings | None = None, checkpointer=None):
-    """Construit l'agent ReAct (LLM llama-server + outil RAG).
+    """Construit l'agent ReAct (LLM configurable + outil RAG).
 
     Args:
         settings: Config chatbot ; `config/chatbot/` si omis.

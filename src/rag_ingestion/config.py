@@ -119,7 +119,7 @@ def _bool_env(key: str, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    """Paramètres runtime (Qdrant, embeddings, Ollama, OCR, chunking, disque)."""
+    """Paramètres runtime (Qdrant, embeddings, LLM LangExtract, OCR, chunking, disque)."""
 
     qdrant_url: str
     qdrant_collection: str

@@ -96,7 +96,13 @@ def cmd_serve(args: argparse.Namespace) -> int:
     s = load_chat_settings()
     host = args.host or s.api_host
     port = args.port if args.port is not None else s.api_port
-    logger.info("Serving RAG chat API on http://%s:%s", host, port)
+    logger.info(
+        "Serving RAG chat API on http://%s:%s (provider=%s model=%s)",
+        host,
+        port,
+        s.llm_provider,
+        s.llama_server_model,
+    )
     uvicorn.run("chatbot.api:create_app", factory=True, host=host, port=port)
     return 0
 

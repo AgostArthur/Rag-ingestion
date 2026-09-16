@@ -19,7 +19,10 @@ export async function fetchTimeline(siteId) {
     throw new Error(`GET /timeline ${res.status}`);
   }
   const data = await res.json();
-  return Array.isArray(data.events) ? data.events : [];
+  return {
+    documents: Array.isArray(data.documents) ? data.documents : [],
+    events: Array.isArray(data.events) ? data.events : [],
+  };
 }
 
 export async function postChat({ message, threadId, siteId, documentId }) {
@@ -34,8 +37,15 @@ export async function postChat({ message, threadId, siteId, documentId }) {
     }),
   });
   if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(detail || `POST /chat ${res.status}`);
+    const raw = await res.text();
+    let message = raw;
+    try {
+      const data = JSON.parse(raw);
+      if (typeof data.detail === "string") message = data.detail;
+    } catch {
+      /* keep raw */
+    }
+    throw new Error(message || `POST /chat ${res.status}`);
   }
   return res.json();
 }
@@ -50,4 +60,71 @@ export function fileLabel(event) {
     (event && (event.title || event.project_id || event.firm)) ||
     "rapport"
   );
+}
+
+const ROLE_LABELS = {
+  report: "Rapport",
+  fieldwork: "Terrain",
+  contract: "Contrat",
+};
+
+const DOC_TYPE_LABELS = {
+  ees_phase_1: "ÉES phase I",
+  ees_phase_2: "ÉES phase II",
+  rapport: "Rapport",
+  contrat: "Contrat",
+  facture: "Facture",
+  note: "Note",
+  guide: "Guide",
+  autre: "Autre",
+};
+
+export function roleLabel(role) {
+  if (!role) return "";
+  return ROLE_LABELS[role] || role;
+}
+
+export function docTypeLabel(docType) {
+  if (!docType) return "";
+  return DOC_TYPE_LABELS[docType] || docType;
+}
+
+export function eventHeading(event) {
+  const type = docTypeLabel(event && event.doc_type);
+  const title = (event && event.title) || "";
+  if (type && title && title.toLowerCase() !== type.toLowerCase()) {
+    return title;
+  }
+  return title || type || (event && event.firm) || "Rapport";
+}
+
+export function siteLine(event) {
+  if (!event) return "";
+  const lot = event.lot_cadastral ? `lot ${event.lot_cadastral}` : "";
+  return [event.address, event.city, lot].filter(Boolean).join(" · ");
+}
+
+export function parseQualityLabel(quality) {
+  if (quality === "ocr_heavy") return "OCR lourd";
+  if (quality === "ocr_partial") return "OCR partiel";
+  return "";
+}
+
+export function groupTimeline(documents, events) {
+  const eventRows = Array.isArray(events) ? events : [];
+  const docRows = Array.isArray(documents) ? documents : [];
+  if (docRows.length === 0) {
+    return eventRows.map((event) => ({ document: event, events: [event] }));
+  }
+  const byDoc = new Map();
+  for (const event of eventRows) {
+    const id = event && event.document_id;
+    if (!id) continue;
+    if (!byDoc.has(id)) byDoc.set(id, []);
+    byDoc.get(id).push(event);
+  }
+  return docRows.map((document) => ({
+    document,
+    events: byDoc.get(document.document_id) || [],
+  }));
 }

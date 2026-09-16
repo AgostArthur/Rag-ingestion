@@ -23,7 +23,9 @@ def test_collect_health_reports_components(monkeypatch):
             (),
             {
                 "llama_server_base_url": "http://localhost:8080/v1",
+                "llama_server_model": "local",
                 "llama_server_api_key": "sk-no-key-required",
+                "llm_provider": "local",
             },
         )(),
     )
@@ -34,6 +36,7 @@ def test_collect_health_reports_components(monkeypatch):
     report = collect_health()
     assert report["status"] == "degraded"
     assert report["qdrant"]["ok"] is True
+    assert report["llm"]["ok"] is False
     assert report["llama_server"]["ok"] is False
 
 

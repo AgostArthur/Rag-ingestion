@@ -8,7 +8,18 @@ import {
   useMap,
 } from "@vis.gl/react-google-maps";
 import { Clock, Send, ShieldCheck } from "lucide-react";
-import { fetchSites, fetchTimeline, fileLabel, postChat } from "./api";
+import {
+  docTypeLabel,
+  eventHeading,
+  fetchSites,
+  fetchTimeline,
+  fileLabel,
+  groupTimeline,
+  parseQualityLabel,
+  postChat,
+  roleLabel,
+  siteLine,
+} from "./api";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 const MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
@@ -37,6 +48,7 @@ function App() {
   const [sitesError, setSitesError] = useState("");
   const [activeId, setActiveId] = useState(null);
   const [events, setEvents] = useState([]);
+  const [documents, setDocuments] = useState([]);
   const [focusedDoc, setFocusedDoc] = useState(null);
   const [draft, setDraft] = useState("");
   const [messages, setMessages] = useState([]);
@@ -75,15 +87,21 @@ function App() {
   useEffect(() => {
     if (!activeId) {
       setEvents([]);
+      setDocuments([]);
       return;
     }
     let cancelled = false;
     fetchTimeline(activeId)
-      .then((rows) => {
-        if (!cancelled) setEvents(rows);
+      .then((payload) => {
+        if (cancelled) return;
+        setDocuments(payload.documents);
+        setEvents(payload.events);
       })
       .catch(() => {
-        if (!cancelled) setEvents([]);
+        if (!cancelled) {
+          setDocuments([]);
+          setEvents([]);
+        }
       });
     return () => {
       cancelled = true;
@@ -154,9 +172,14 @@ function App() {
   }, [draft, busy, threadId, activeId, focusedDoc]);
 
   const mapCenter = activePos || QC_CENTER;
-  const nDocs = (activeSite && activeSite.document_ids
-    ? activeSite.document_ids.length
-    : events.length) || 0;
+  const timelineItems = useMemo(
+    () => groupTimeline(documents, events),
+    [documents, events]
+  );
+  const nDocs =
+    (activeSite && activeSite.document_ids
+      ? activeSite.document_ids.length
+      : documents.length) || 0;
 
   const mapInner = (
     <>
@@ -392,38 +415,85 @@ function App() {
                 padding: "12px 16px",
                 borderBottom: "1px solid #f1f5f9",
                 background: "#f8fafc",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
               }}
             >
-              <Clock size={14} color="#64748b" />
-              <span
+              <div
                 style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  color: "#475569",
-                  textTransform: "uppercase",
-                  letterSpacing: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
                 }}
               >
-                Chronologie
-              </span>
+                <Clock size={14} color="#64748b" />
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "#475569",
+                    textTransform: "uppercase",
+                    letterSpacing: 1,
+                  }}
+                >
+                  Chronologie
+                </span>
+              </div>
+              {activeSite && (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 11,
+                    color: "#64748b",
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, color: "#334155" }}>
+                    {activeSite.address || activeSite.site_id}
+                  </div>
+                  {(activeSite.city || activeSite.lot_cadastral) && (
+                    <div>
+                      {[
+                        activeSite.city,
+                        activeSite.lot_cadastral &&
+                          `lot ${activeSite.lot_cadastral}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-              {events.length === 0 && (
+              {timelineItems.length === 0 && (
                 <div style={{ fontSize: 12, color: "#94a3b8" }}>
                   {activeId
-                    ? "Aucun événement pour ce site."
+                    ? "Aucun rapport dans le catalog pour ce site."
                     : "Sélectionnez un site sur la carte."}
                 </div>
               )}
-              {events.map((r, i) => {
+              {timelineItems.map((item, i) => {
+                const r = item.document;
                 const selected =
                   focusedDoc && focusedDoc.document_id === r.document_id;
+                const typeLabel = docTypeLabel(r.doc_type);
+                const heading = eventHeading(r);
+                const place = siteLine(r);
+                const fileName = fileLabel(r);
+                const quality = parseQualityLabel(r.parse_quality);
+                const contaminants = Array.isArray(r.contaminants)
+                  ? r.contaminants.filter(Boolean)
+                  : [];
+                const dated = (item.events || []).filter(
+                  (ev, idx, all) =>
+                    all.findIndex(
+                      (other) =>
+                        other.iso_date === ev.iso_date && other.role === ev.role
+                    ) === idx
+                );
+                const mainDate = r.report_date || (dated[0] && dated[0].iso_date);
                 return (
                   <button
-                    key={`${r.document_id}-${r.iso_date}-${i}`}
+                    key={r.document_id || `${mainDate}-${i}`}
                     type="button"
                     onClick={() => selectReport(r)}
                     style={{
@@ -459,6 +529,7 @@ function App() {
                       style={{
                         display: "flex",
                         justifyContent: "space-between",
+                        alignItems: "center",
                         marginBottom: 4,
                         gap: 8,
                       }}
@@ -470,20 +541,44 @@ function App() {
                           color: "#94a3b8",
                         }}
                       >
-                        {r.iso_date}
+                        {mainDate || "sans date"}
                       </span>
                       <span
                         style={{
-                          fontSize: 9,
-                          fontWeight: 700,
-                          padding: "1px 6px",
-                          background: "#f1f5f9",
-                          color: "#64748b",
-                          borderRadius: 4,
-                          textTransform: "uppercase",
+                          display: "flex",
+                          gap: 4,
+                          flexWrap: "wrap",
+                          justifyContent: "flex-end",
                         }}
                       >
-                        {r.role}
+                        {typeLabel ? (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "1px 6px",
+                              background: "#E8F7DD",
+                              color: "#3DA821",
+                              borderRadius: 4,
+                            }}
+                          >
+                            {typeLabel}
+                          </span>
+                        ) : null}
+                        {quality ? (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "1px 6px",
+                              background: "#f8fafc",
+                              color: "#94a3b8",
+                              borderRadius: 4,
+                            }}
+                          >
+                            {quality}
+                          </span>
+                        ) : null}
                       </span>
                     </div>
                     <div
@@ -493,8 +588,8 @@ function App() {
                         color: "#1e293b",
                       }}
                     >
-                      {r.title || r.firm || r.label || "Rapport"}
-                      {r.project_id ? ` · ${r.project_id}` : ""}
+                      {heading}
+                      {r.project_id ? ` · n° ${r.project_id}` : ""}
                     </div>
                     <div
                       style={{
@@ -504,7 +599,24 @@ function App() {
                         lineHeight: 1.5,
                       }}
                     >
-                      {[r.firm, r.label, fileLabel(r)].filter(Boolean).join(" — ")}
+                      {r.firm ? <div>{r.firm}</div> : null}
+                      {r.client ? <div>Client : {r.client}</div> : null}
+                      {place ? <div>{place}</div> : null}
+                      {contaminants.length > 0 ? (
+                        <div>Contaminants : {contaminants.join(", ")}</div>
+                      ) : null}
+                      {fileName && fileName !== heading ? (
+                        <div>{fileName}</div>
+                      ) : null}
+                      {dated.length > 0 ? (
+                        <div style={{ marginTop: 6 }}>
+                          {dated.map((ev) => (
+                            <div key={`${ev.iso_date}-${ev.role}`}>
+                              {ev.iso_date} · {roleLabel(ev.role)}
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </button>
                 );

@@ -1,10 +1,10 @@
 """Configuration du chatbot : fichiers sous `config/chatbot/`, comme LangExtract.
 
 - `config/chatbot/prompt.txt` — prompt système de l'agent
-- `config/chatbot/settings.json` — llama-server, échantillonnage, RAG, API
+- `config/chatbot/settings.json` — provider LLM, échantillonnage, RAG, API
 
-`.env` complète les variables absentes (`CHAT_PROMPT_FILE`, `CHAT_SETTINGS_FILE`)
-et peut surcharger une clé JSON si la variable n'est pas déjà posée par Compose.
+`.env` choisit le provider (`LLM_PROVIDER` / `CHAT_PROVIDER`) et les clés cloud.
+`llama_server_*` reste l'endpoint OpenAI-compatible une fois résolu.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from rag_ingestion.config import rewrite_loopback_url
 
 DEFAULT_CHAT_PROMPT_FILE = "config/chatbot/prompt.txt"
 DEFAULT_CHAT_SETTINGS_FILE = "config/chatbot/settings.json"
@@ -184,6 +183,7 @@ class ChatSettings:
     rag_score_threshold: float = 0.0
     rag_include_catalog: bool = False
     rag_hybrid_text: bool = False
+    llm_provider: str = "local"
 
 
 def load_chat_settings() -> ChatSettings:
@@ -194,25 +194,20 @@ def load_chat_settings() -> ChatSettings:
         os.getenv("CHAT_SETTINGS_FILE", ""), DEFAULT_CHAT_SETTINGS_FILE
     )
     data = load_settings_file(settings_file)
+    from rag_ingestion.llm_providers import resolve_chat_llm
+
+    json_provider = data.get("llm_provider")
+    llm = resolve_chat_llm(
+        json_provider=str(json_provider).strip() if json_provider else None,
+        json_base_url=str(data.get("llama_server_base_url") or "").strip() or None,
+        json_model=str(data.get("llama_server_model") or "").strip() or None,
+        json_api_key=str(data.get("llama_server_api_key") or "").strip() or None,
+    )
     return ChatSettings(
-        llama_server_base_url=rewrite_loopback_url(
-            _str_from(
-                data,
-                "llama_server_base_url",
-                "http://localhost:8080/v1",
-                extra_env=("OPENAI_BASE_URL",),
-            ).rstrip("/")
-            or "http://localhost:8080/v1"
-        ),
-        llama_server_model=_str_from(
-            data, "llama_server_model", "local", extra_env=("OPENAI_MODEL",)
-        ),
-        llama_server_api_key=_str_from(
-            data,
-            "llama_server_api_key",
-            "sk-no-key-required",
-            extra_env=("OPENAI_API_KEY",),
-        ),
+        llama_server_base_url=llm.base_url,
+        llama_server_model=llm.model,
+        llama_server_api_key=llm.api_key,
+        llm_provider=llm.provider,
         temperature=_float_from(data, "temperature", 0.0),
         top_p=min(1.0, max(0.0, _float_from(data, "top_p", 0.9))),
         rag_limit=_int_from(data, "rag_limit", 8, minimum=1),

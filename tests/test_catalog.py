@@ -5,6 +5,7 @@ from rag_ingestion.catalog import (
     get_document,
     get_site,
     get_site_timeline,
+    list_site_documents,
     list_sites,
     parse_bbox,
     sites_geojson,
@@ -154,12 +155,57 @@ def test_document_exists(tmp_path: Path):
 
 def test_timeline_includes_document_fields(tmp_path: Path):
     settings = _settings(tmp_path)
-    upsert_document_meta(_meta(), settings=settings)
+    upsert_document_meta(_meta(client="ACME Inc."), settings=settings)
     timeline = get_site_timeline("lot:2363352", settings=settings)
     report = next(e for e in timeline if e["role"] == "report")
     assert report["title"] == "ÉES phase II"
     assert report["firm"] == "Enviro-Experts"
     assert report["project_id"] == "4405"
+    assert report["doc_type"] == "ees_phase_2"
+    assert report["client"] == "ACME Inc."
+    assert report["address"] == "619, route 341, L'Épiphanie"
+    assert report["lot_cadastral"] == "2363352"
+    assert report["city"] == "L'Épiphanie"
+    assert report["contaminants"] == ["HAM"]
+    assert report["source_path"] == "/tmp/a.pdf"
+
+
+def test_list_site_documents_reads_sql_fiches(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(_meta(client="ACME Inc."), settings=settings)
+    upsert_document_meta(
+        _meta(
+            document_id="bbb",
+            source_path="/tmp/b.pdf",
+            project_ids=["2259"],
+            firm="Géosphère",
+            report_date="2024-01-03",
+        ),
+        settings=settings,
+    )
+    docs = list_site_documents("lot:2363352", settings=settings)
+    assert [d["project_id"] for d in docs] == ["4405", "2259"]
+    first = docs[0]
+    assert first["title"] == "ÉES phase II"
+    assert first["doc_type"] == "ees_phase_2"
+    assert first["client"] == "ACME Inc."
+    assert first["address"] == "619, route 341, L'Épiphanie"
+    assert first["lot_cadastral"] == "2363352"
+    assert first["report_date"] == "2023-01-03"
+
+
+def test_timeline_fallback_includes_site_fields(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(_meta(events=[], client="ACME Inc."), settings=settings)
+    timeline = get_site_timeline("lot:2363352", settings=settings)
+    assert len(timeline) == 1
+    row = timeline[0]
+    assert row["role"] == "report"
+    assert row["iso_date"] == "2023-01-03"
+    assert row["doc_type"] == "ees_phase_2"
+    assert row["client"] == "ACME Inc."
+    assert row["address"] == "619, route 341, L'Épiphanie"
+    assert row["lot_cadastral"] == "2363352"
 
 
 def test_list_sites_and_bbox(tmp_path: Path):

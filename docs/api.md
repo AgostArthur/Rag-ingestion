@@ -8,7 +8,7 @@ Le modèle **n’a pas** les chunks dans le prompt. Il appelle l’outil `search
 
 | Méthode | Usage |
 |---|---|
-| `GET /health` | Qdrant, SQLite, LLM (`/v1/models`) |
+| `GET /health` | Qdrant, SQLite, LLM (`provider`, `/v1/models`). Alias `llama_server` = `llm`. |
 | `GET /sites` | Liste des sites. `?bbox=min_lon,min_lat,max_lon,max_lat`. `?geojson=true` → FeatureCollection |
 | `GET /sites/{site_id}` | Fiche + `document_ids` (`site_id` à encoder, ex. `lot%3A2363352`) |
 | `GET /sites/{site_id}/timeline` | Events triés (`iso_date`, `role`, titre / firme du PDF). Repli `report_date` s’il n’y a pas d’events |

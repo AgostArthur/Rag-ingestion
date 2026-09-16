@@ -1,4 +1,4 @@
-"""Schéma LangExtract : chargement des fichiers de config et appel Ollama."""
+"""Schéma LangExtract : chargement des fichiers de config et appel LLM."""
 
 from __future__ import annotations
 
@@ -161,16 +161,18 @@ def extract_structured(
     profile_override: str | None = None,
     schema: ExtractSchema | None = None,
 ) -> list[GroundedExtraction]:
-    """Extrait des métadonnées via LangExtract (Ollama) et sauve JSONL + HTML.
+    """Extrait des métadonnées via LangExtract et sauve JSONL + HTML.
 
-    Le prompt et les few-shots viennent du profil résolu (nom de fichier,
-    heading Markdown, ou `--profile`). Voir `config/langextract/profiles.json`.
+    Le LLM (Ollama, OpenAI ou Gemini) est choisi par `LLM_PROVIDER` /
+    `LANGEXTRACT_PROVIDER`. Le prompt et les few-shots viennent du profil
+    résolu (nom de fichier, heading Markdown, ou `--profile`).
+    Voir `config/langextract/profiles.json`.
 
     Args:
         markdown: Texte source (même chaîne que celle chunkée ensuite).
         document_id: Nom des artefacts `data/extractions/{id}.jsonl|.html`.
         source_path: PDF d'origine ; son nom sélectionne le profil.
-        settings: Config Ollama / chemins ; `.env` si omis.
+        settings: Config LLM / chemins ; `.env` si omis.
         profile_override: Identifiant de profil (CLI `--profile`).
         schema: Schéma déjà résolu ; sinon calculé ici.
 
@@ -185,6 +187,7 @@ def extract_structured(
     import langextract as lx
 
     from rag_ingestion.extract_profile import resolve_extract_schema
+    from rag_ingestion.llm_providers import langextract_extract_kwargs, resolve_extract_llm
 
     resolved = schema or resolve_extract_schema(
         source_path,
@@ -194,9 +197,14 @@ def extract_structured(
     )
     prompt = resolved.prompt
     examples = resolved.examples
+    extract_llm = resolve_extract_llm(
+        langextract_model=s.langextract_model,
+        ollama_base_url=s.ollama_base_url,
+    )
     logger.info(
-        "  Calling Ollama %s (%s characters, timeout %ss)…",
-        s.langextract_model,
+        "  Calling LangExtract provider=%s model=%s (%s characters, timeout %ss)…",
+        extract_llm.provider,
+        extract_llm.model,
         len(markdown),
         int(s.langextract_timeout_seconds),
     )
@@ -212,10 +220,9 @@ def extract_structured(
         text_or_documents=markdown,
         prompt_description=prompt,
         examples=examples,
-        model_id=s.langextract_model,
-        model_url=s.ollama_base_url,
-        language_model_params={"timeout": int(s.langextract_timeout_seconds)},
-        show_progress=False,
+        **langextract_extract_kwargs(
+            extract_llm, timeout_seconds=s.langextract_timeout_seconds
+        ),
     )
 
     s.extractions_dir.mkdir(parents=True, exist_ok=True)

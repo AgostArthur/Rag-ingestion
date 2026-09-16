@@ -428,8 +428,57 @@ def get_site(site_id: str, settings: Settings | None = None) -> dict[str, Any] |
         conn.close()
 
 
+def list_site_documents(
+    site_id: str, settings: Settings | None = None
+) -> list[dict[str, Any]]:
+    """Fiches `documents` du site (catalog SQLite), triées par date de rapport."""
+    s = settings or load_settings()
+    path = catalog_path(s)
+    if not path.is_file():
+        return []
+    conn = connect(path)
+    try:
+        ensure_schema(conn)
+        site = conn.execute(
+            "SELECT * FROM sites WHERE site_id = ?",
+            (site_id,),
+        ).fetchone()
+        rows = conn.execute(
+            "SELECT * FROM documents WHERE site_id = ? "
+            "ORDER BY report_date IS NULL, report_date, ingested_at",
+            (site_id,),
+        ).fetchall()
+        return [_document_dict(row, site) for row in rows]
+    finally:
+        conn.close()
+
+
+_TIMELINE_SELECT = """
+SELECT
+  e.id AS id,
+  e.document_id AS document_id,
+  e.site_id AS site_id,
+  e.iso_date AS iso_date,
+  e.role AS role,
+  e.label AS label,
+  d.title AS title,
+  d.firm AS firm,
+  d.doc_type AS doc_type,
+  d.project_id AS project_id,
+  d.source_path AS source_path,
+  d.client AS client,
+  d.contaminants AS contaminants,
+  s.address AS address,
+  s.lot_cadastral AS lot_cadastral,
+  s.city AS city
+FROM events e
+LEFT JOIN documents d ON d.document_id = e.document_id
+LEFT JOIN sites s ON s.site_id = e.site_id
+"""
+
+
 def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[dict[str, Any]]:
-    """Events du site, triés par date, avec titre / firme du document.
+    """Events du site, triés par date, avec métadonnées document + site.
 
     S'il n'y a pas d'events LangExtract, repli sur `report_date` des documents.
     """
@@ -443,17 +492,34 @@ def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[di
         roles = tuple(sorted(TIMELINE_ROLES))
         placeholders = ",".join("?" * len(roles))
         rows = conn.execute(
-            "SELECT id, document_id, site_id, iso_date, role, label "
-            f"FROM events WHERE site_id = ? AND role IN ({placeholders}) "
-            "ORDER BY iso_date, id",
+            _TIMELINE_SELECT
+            + f"WHERE e.site_id = ? AND e.role IN ({placeholders}) "
+            "ORDER BY e.iso_date, e.id",
             (site_id, *roles),
         ).fetchall()
         events = [_event_dict(row) for row in rows]
         if events:
             return events
         docs = conn.execute(
-            "SELECT document_id, title, firm, doc_type, project_id, source_path, report_date "
-            "FROM documents WHERE site_id = ? ORDER BY report_date, ingested_at",
+            """
+            SELECT
+              d.document_id AS document_id,
+              d.title AS title,
+              d.firm AS firm,
+              d.doc_type AS doc_type,
+              d.project_id AS project_id,
+              d.source_path AS source_path,
+              d.report_date AS report_date,
+              d.client AS client,
+              d.contaminants AS contaminants,
+              s.address AS address,
+              s.lot_cadastral AS lot_cadastral,
+              s.city AS city
+            FROM documents d
+            LEFT JOIN sites s ON s.site_id = d.site_id
+            WHERE d.site_id = ?
+            ORDER BY d.report_date, d.ingested_at
+            """,
             (site_id,),
         ).fetchall()
         fallback: list[dict[str, Any]] = []
@@ -462,40 +528,98 @@ def get_site_timeline(site_id: str, settings: Settings | None = None) -> list[di
             if not iso:
                 continue
             fallback.append(
-                {
-                    "id": None,
-                    "document_id": row["document_id"],
-                    "site_id": site_id,
-                    "iso_date": iso,
-                    "role": "report",
-                    "label": row["title"] or row["firm"] or "rapport",
-                    "title": row["title"],
-                    "firm": row["firm"],
-                    "doc_type": row["doc_type"],
-                    "project_id": row["project_id"],
-                    "source_path": row["source_path"],
-                }
+                _timeline_event(
+                    event_id=None,
+                    document_id=row["document_id"],
+                    site_id=site_id,
+                    iso_date=iso,
+                    role="report",
+                    label=row["title"] or row["firm"] or "rapport",
+                    title=row["title"],
+                    firm=row["firm"],
+                    doc_type=row["doc_type"],
+                    project_id=row["project_id"],
+                    source_path=row["source_path"],
+                    client=row["client"],
+                    contaminants=row["contaminants"],
+                    address=row["address"],
+                    lot_cadastral=row["lot_cadastral"],
+                    city=row["city"],
+                )
             )
         return fallback
     finally:
         conn.close()
 
 
+def _timeline_event(
+    *,
+    event_id: int | None,
+    document_id: str,
+    site_id: str,
+    iso_date: str,
+    role: str,
+    label: str | None,
+    title: str | None,
+    firm: str | None,
+    doc_type: str | None,
+    project_id: str | None,
+    source_path: str | None,
+    client: str | None = None,
+    contaminants: Any = None,
+    address: str | None = None,
+    lot_cadastral: str | None = None,
+    city: str | None = None,
+) -> dict[str, Any]:
+    parsed = contaminants
+    if isinstance(contaminants, str) or contaminants is None:
+        parsed = _parse_project_ids(contaminants if isinstance(contaminants, str) else None)
+    elif not isinstance(contaminants, list):
+        parsed = []
+    return {
+        "id": event_id,
+        "document_id": document_id,
+        "site_id": site_id,
+        "iso_date": iso_date,
+        "role": role,
+        "label": label,
+        "title": title,
+        "firm": firm,
+        "doc_type": doc_type,
+        "project_id": project_id,
+        "source_path": source_path,
+        "client": client,
+        "contaminants": parsed,
+        "address": address,
+        "lot_cadastral": lot_cadastral,
+        "city": city,
+    }
+
+
 def _event_dict(row: sqlite3.Row) -> dict[str, Any]:
     keys = row.keys()
-    return {
-        "id": row["id"],
-        "document_id": row["document_id"],
-        "site_id": row["site_id"],
-        "iso_date": row["iso_date"],
-        "role": row["role"],
-        "label": row["label"],
-        "title": row["title"] if "title" in keys else None,
-        "firm": row["firm"] if "firm" in keys else None,
-        "doc_type": row["doc_type"] if "doc_type" in keys else None,
-        "project_id": row["project_id"] if "project_id" in keys else None,
-        "source_path": row["source_path"] if "source_path" in keys else None,
-    }
+
+    def col(name: str) -> Any:
+        return row[name] if name in keys else None
+
+    return _timeline_event(
+        event_id=col("id"),
+        document_id=col("document_id"),
+        site_id=col("site_id"),
+        iso_date=col("iso_date"),
+        role=col("role"),
+        label=col("label"),
+        title=col("title"),
+        firm=col("firm"),
+        doc_type=col("doc_type"),
+        project_id=col("project_id"),
+        source_path=col("source_path"),
+        client=col("client"),
+        contaminants=col("contaminants"),
+        address=col("address"),
+        lot_cadastral=col("lot_cadastral"),
+        city=col("city"),
+    )
 
 
 def parse_bbox(raw: str | None) -> tuple[float, float, float, float] | None:

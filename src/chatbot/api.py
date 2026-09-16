@@ -115,12 +115,16 @@ def create_app(settings: ChatSettings | None = None):
 
     @app.get("/sites/{site_id}/timeline")
     def site_timeline(site_id: str) -> dict[str, Any]:
-        from rag_ingestion.catalog import get_site, get_site_timeline
+        from rag_ingestion.catalog import get_site, get_site_timeline, list_site_documents
 
         row = get_site(site_id)
         if row is None:
             raise HTTPException(status_code=404, detail="site not found")
-        return {"site_id": site_id, "events": get_site_timeline(site_id)}
+        return {
+            "site_id": site_id,
+            "documents": list_site_documents(site_id),
+            "events": get_site_timeline(site_id),
+        }
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(payload: ChatRequest = Body()) -> Any:
@@ -135,6 +139,8 @@ def create_app(settings: ChatSettings | None = None):
                     "recursion_limit": recursion_limit_for(s.max_tool_calls),
                 },
             )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=str(exc)[:2000]) from exc
         finally:
             ui_site_id.reset(site_token)
             ui_document_id.reset(doc_token)
