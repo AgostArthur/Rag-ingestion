@@ -28,6 +28,8 @@ def _settings(**overrides: object) -> ChatSettings:
         settings_file=Path("config/chatbot/settings.json"),
         project_root=Path("."),
     )
+    base.update(overrides)
+    return ChatSettings(**base)  # type: ignore[arg-type]
 
 
 def test_root_is_not_404(monkeypatch):
@@ -44,8 +46,6 @@ def test_root_is_not_404(monkeypatch):
     assert body["health"] == "/health"
     assert body["chat"] == "POST /chat"
     assert client.get("/favicon.ico").status_code == 204
-    base.update(overrides)
-    return ChatSettings(**base)  # type: ignore[arg-type]
 
 
 class _FakeGraph:
@@ -64,6 +64,13 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
             "documents": [],
             "citations": [],
         },
+    )
+    monkeypatch.setattr(
+        "chatbot.api.invoke_turn",
+        lambda graph, message, *, thread_id, recursion_limit: (
+            {"messages": []},
+            {"total_seconds": 0.12, "steps": {"llm": 0.1}},
+        ),
     )
     from chatbot.api import create_app
 
@@ -86,6 +93,8 @@ def test_chat_post_json_is_accepted(client: TestClient):
     assert data["reply"] == "pong"
     assert data["thread_id"]
     assert data["focus"]["document_ids"] == []
+    assert data["timing"]["total_seconds"] == 0.12
+    assert data["timing"]["steps"]["llm"] == 0.1
 
 
 def test_chat_missing_body_is_json_not_query(client: TestClient):

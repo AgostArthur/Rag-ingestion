@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import time
 from contextvars import ContextVar
 from typing import Any
 
 from chatbot.config import ChatSettings, load_chat_settings
+from chatbot.timing import get_turn_timer, record_step
 
 # Cap so the model cannot request dozens of chunks in one tool call.
 _MAX_RAG_LIMIT = 20
@@ -244,6 +246,8 @@ def build_search_tool(settings: ChatSettings | None = None):
         filters = apply_ui_focus_filters(
             _filters_from_args(doc_type, entities, document_id, site_id, project_id)
         )
+        timer = get_turn_timer()
+        t0 = time.perf_counter()
         hits = retrieve_search(
             query,
             limit=n,
@@ -257,17 +261,25 @@ def build_search_tool(settings: ChatSettings | None = None):
             )
             or None,
         )
+        if timer is not None:
+            record_step(timer, "rag_retrieve", time.perf_counter() - t0)
+        t0 = time.perf_counter()
         chunks = format_hits(
             hits,
             max_chars=hit_max_chars,
             table_max_chars=table_max_chars,
         )
+        if timer is not None:
+            record_step(timer, "rag_format", time.perf_counter() - t0)
         if not include_catalog:
             return chunks
+        t0 = time.perf_counter()
         try:
             fiches = format_catalog_fiches(catalog_rows_for_search(filters, hits))
         except Exception:
             fiches = ""
+        if timer is not None:
+            record_step(timer, "rag_catalog", time.perf_counter() - t0)
         if fiches:
             return f"{fiches}\n\n{chunks}"
         return chunks

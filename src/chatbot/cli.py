@@ -44,6 +44,7 @@ def cmd_repl(_args: argparse.Namespace) -> int:
     _require_chat()
     from chatbot.config import load_chat_settings
     from chatbot.graph import build_graph, last_message_text, recursion_limit_for
+    from chatbot.timing import invoke_turn
 
     settings = load_chat_settings()
     graph = build_graph(settings)
@@ -65,12 +66,11 @@ def cmd_repl(_args: argparse.Namespace) -> int:
             print(f"New conversation. thread_id={thread_id}")
             continue
         try:
-            result = graph.invoke(
-                {"messages": [{"role": "user", "content": line}]},
-                config={
-                    "configurable": {"thread_id": thread_id},
-                    "recursion_limit": recursion_limit_for(settings.max_tool_calls),
-                },
+            result, _timing = invoke_turn(
+                graph,
+                line,
+                thread_id=thread_id,
+                recursion_limit=recursion_limit_for(settings.max_tool_calls),
             )
         except Exception as exc:
             logger.exception("Chat turn failed")

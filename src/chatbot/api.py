@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from chatbot.config import ChatSettings, load_chat_settings
 from chatbot.focus import envelope_from_result
 from chatbot.graph import build_graph, last_message_text, recursion_limit_for
+from chatbot.timing import invoke_turn
 from chatbot.health import collect_health
 from chatbot.tools import ui_document_id, ui_site_id
 
@@ -27,12 +28,18 @@ class Focus(BaseModel):
     site_ids: list[str]
 
 
+class TurnTiming(BaseModel):
+    total_seconds: float
+    steps: dict[str, float] = Field(default_factory=dict)
+
+
 class ChatResponse(BaseModel):
     reply: str
     thread_id: str
     focus: Focus
     documents: list[dict[str, Any]]
     citations: list[dict[str, Any]]
+    timing: TurnTiming
 
 
 def create_app(settings: ChatSettings | None = None):
@@ -132,12 +139,11 @@ def create_app(settings: ChatSettings | None = None):
         site_token = ui_site_id.set((payload.site_id or "").strip())
         doc_token = ui_document_id.set((payload.document_id or "").strip())
         try:
-            result = graph.invoke(
-                {"messages": [{"role": "user", "content": payload.message}]},
-                config={
-                    "configurable": {"thread_id": thread_id},
-                    "recursion_limit": recursion_limit_for(s.max_tool_calls),
-                },
+            result, timing = invoke_turn(
+                graph,
+                payload.message,
+                thread_id=thread_id,
+                recursion_limit=recursion_limit_for(s.max_tool_calls),
             )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=str(exc)[:2000]) from exc
@@ -151,6 +157,7 @@ def create_app(settings: ChatSettings | None = None):
             focus=Focus(**envelope["focus"]),
             documents=envelope["documents"],
             citations=envelope["citations"],
+            timing=TurnTiming(**timing),
         )
 
     return app

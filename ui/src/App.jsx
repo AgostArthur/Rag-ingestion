@@ -20,6 +20,7 @@ import {
   roleLabel,
   siteLine,
 } from "./api";
+import ChatTiming from "./ChatTiming";
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
 const MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
@@ -55,6 +56,7 @@ function App() {
   const [threadId, setThreadId] = useState(null);
   const [busy, setBusy] = useState(false);
   const [chatError, setChatError] = useState("");
+  const [openTimingIdx, setOpenTimingIdx] = useState(null);
   const chatEndRef = useRef(null);
 
   const activeSite = useMemo(
@@ -157,8 +159,10 @@ function App() {
           role: "assistant",
           text: data.reply || "",
           citations: data.citations || [],
+          timing: data.timing || null,
         },
       ]);
+      setOpenTimingIdx(null);
       const nextSite =
         data.focus && data.focus.site_ids && data.focus.site_ids[0];
       if (nextSite) {
@@ -794,6 +798,17 @@ function App() {
                         </span>
                       ))}
                     </div>
+                  )}
+                  {m.role === "assistant" && m.timing && (
+                    <ChatTiming
+                      timing={m.timing}
+                      open={openTimingIdx === i}
+                      onToggle={() =>
+                        setOpenTimingIdx((current) =>
+                          current === i ? null : i
+                        )
+                      }
+                    />
                   )}
                 </div>
               </div>
