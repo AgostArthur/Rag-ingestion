@@ -12,7 +12,6 @@ Pipeline : PDF → LiteParse (OCR) → Markdown → chunks + LangExtract → **c
 cp .env.example .env
 # LLM_PROVIDER=gemini          # ou openai | ollama | local
 # GEMINI_API_KEY=...           # ou OPENAI_API_KEY + OPENAI_MODEL
-# VITE_GOOGLE_MAPS_API_KEY=...   # rebuild UI after changing this
 
 docker compose up -d --build
 ```
@@ -76,6 +75,6 @@ Le LLM n’a pas les chunks dans le prompt. Provider : `LLM_PROVIDER` (`local` /
 rag-chat          # REPL ; JSON focus sous la réponse
 rag-chat serve    # POST /chat → { reply, thread_id, focus, documents, citations }
 ```
-Vite proxy `/chat`, `/sites`, `/documents` vers `:8000`. Clé Maps : `ui/.env.local` avec `VITE_GOOGLE_MAPS_API_KEY=`.
+Vite proxy `/chat`, `/sites`, `/documents` vers `:8000`. Carte : Leaflet / OpenStreetMap (pas de clé).
 
 Documentation : [`docs/README.md`](docs/README.md) (pipeline, catalog, API, UI).

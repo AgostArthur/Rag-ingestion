@@ -75,9 +75,6 @@ services:
     build:
       context: ./ui
       dockerfile: Dockerfile
-      args:
-        VITE_GOOGLE_MAPS_API_KEY: ${VITE_GOOGLE_MAPS_API_KEY:-}
-        VITE_GOOGLE_MAPS_MAP_ID: ${VITE_GOOGLE_MAPS_MAP_ID:-DEMO_MAP_ID}
     ports:
       - "${UI_PORT:-3000}:80"
     depends_on:

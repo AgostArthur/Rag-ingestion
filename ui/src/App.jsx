@@ -1,12 +1,6 @@
 // Client shell: map + chronologie + chat. Data comes from rag-chat catalog, not mock SITES.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  APIProvider,
-  Map,
-  AdvancedMarker,
-  Pin,
-  useMap,
-} from "@vis.gl/react-google-maps";
+import { CircleMarker, MapContainer, TileLayer, useMap } from "react-leaflet";
 import { Clock, Send, ShieldCheck } from "lucide-react";
 import {
   docTypeLabel,
@@ -22,15 +16,13 @@ import {
 } from "./api";
 import ChatTiming from "./ChatTiming";
 
-const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
-const MAP_ID = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID";
 const QC_CENTER = { lat: 46.8139, lng: -71.208 };
 
 function PanTo({ pos }) {
   const map = useMap();
   useEffect(() => {
-    if (map && pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
-      map.panTo(pos);
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      map.panTo([pos.lat, pos.lng]);
     }
   }, [map, pos]);
   return null;
@@ -187,84 +179,44 @@ function App() {
 
   const mapInner = (
     <>
-      {MAPS_KEY ? (
-        <APIProvider apiKey={MAPS_KEY} libraries={["marker"]}>
-          <Map
-            mapId={MAP_ID}
-            defaultCenter={QC_CENTER}
-            defaultZoom={8}
-            style={{ width: "100%", height: "100%" }}
-            gestureHandling="greedy"
-            disableDefaultUI={false}
-          >
-            <PanTo pos={mapCenter} />
-            {sites.map((s) => {
-              const pos = pinPosition(s);
-              if (!pos) return null;
-              const selected = activeId === s.site_id;
-              return (
-                <AdvancedMarker
-                  key={s.site_id}
-                  position={pos}
-                  onClick={() => selectSite(s.site_id)}
-                  zIndex={selected ? 10 : 1}
-                >
-                  <Pin
-                    background={selected ? "#50C32A" : "#64748b"}
-                    borderColor="#fff"
-                    glyphColor="#fff"
-                    scale={selected ? 1.4 : 1.0}
-                  />
-                </AdvancedMarker>
-              );
-            })}
-          </Map>
-        </APIProvider>
-      ) : (
-        <div
-          style={{
-            height: "100%",
-            background: "#e2e8f0",
-            padding: 24,
-            overflow: "auto",
-          }}
-        >
-          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
-            Définissez VITE_GOOGLE_MAPS_API_KEY dans ui/.env.local pour la
-            carte. Sites du catalog :
-          </div>
-          {sites.map((s) => (
-            <button
+      <MapContainer
+        center={[QC_CENTER.lat, QC_CENTER.lng]}
+        zoom={8}
+        style={{ width: "100%", height: "100%" }}
+        scrollWheelZoom
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <PanTo pos={mapCenter} />
+        {sites.map((s) => {
+          const pos = pinPosition(s);
+          if (!pos) return null;
+          const selected = activeId === s.site_id;
+          return (
+            <CircleMarker
               key={s.site_id}
-              type="button"
-              onClick={() => selectSite(s.site_id)}
-              style={{
-                display: "block",
-                width: "100%",
-                textAlign: "left",
-                marginBottom: 8,
-                padding: 10,
-                borderRadius: 8,
-                border:
-                  activeId === s.site_id
-                    ? "2px solid #50C32A"
-                    : "1px solid #cbd5e1",
-                background: "white",
-                cursor: "pointer",
+              center={[pos.lat, pos.lng]}
+              radius={selected ? 12 : 8}
+              pathOptions={{
+                color: "#fff",
+                weight: 2,
+                fillColor: selected ? "#50C32A" : "#64748b",
+                fillOpacity: 1,
               }}
-            >
-              <strong>{s.address || s.site_id}</strong>
-              <div style={{ fontSize: 11, color: "#64748b" }}>{s.site_id}</div>
-            </button>
-          ))}
-        </div>
-      )}
+              eventHandlers={{ click: () => selectSite(s.site_id) }}
+            />
+          );
+        })}
+      </MapContainer>
 
       <div
         style={{
           position: "absolute",
           top: 16,
           left: 16,
+          zIndex: 1100,
           background: "rgba(255,255,255,0.95)",
           backdropFilter: "blur(8px)",
           borderRadius: 12,

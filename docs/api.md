@@ -67,7 +67,7 @@ REPL : `rag-chat` (JSON `focus` sous la réponse). LLM : `OPENAI_*` ou `LLAMA_SE
 
 Trois panneaux, un état `activeId` = `site_id` catalog :
 
-1. **Carte** — `GET /sites`, un pin par site avec `lat`/`lon` (`AdvancedMarker` + `mapId`, défaut `DEMO_MAP_ID`). Clic → sélection du site. Clé `VITE_GOOGLE_MAPS_API_KEY` (rebuild Compose si elle change). Sans clé : liste cliquable.
+1. **Carte** — `GET /sites`, un pin Leaflet par site avec `lat`/`lon` (tuiles OpenStreetMap). Clic → sélection du site. Sans coordonnées : overlay adresse seulement.
 2. **Chronologie** — `GET /sites/{id}/timeline`. Clic sur un rapport → chip `@fichier` et `document_id` pour le prochain `POST /chat`.
 3. **Chat** — `POST /chat` avec `site_id` et éventuellement `document_id`. Si `focus.site_ids[0]` revient, la carte suit.
 
