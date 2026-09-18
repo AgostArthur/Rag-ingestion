@@ -28,6 +28,7 @@ PDF (octets)
   → SHA-256 = document_id
   → LiteParse inspect (besoin d’OCR par page)
   → LiteParse parse (Markdown + offsets de pages)
+  → bandeaux PDF retirés après la page 1
   → découpage en chunks (offsets stables dans ce Markdown)
   → LangExtract (Ollama) : métadonnées ancrées dans le même Markdown
   → alignement extractions ↔ chunks
@@ -66,7 +67,7 @@ Avant `rag-ingest ingest` :
 |---|---|---|
 | Qdrant | Stockage vecteurs + payload | `docker compose up -d` — image `qdrant/qdrant:v1.19.0`, HTTP `6333` |
 | Ollama | LLM pour LangExtract | `OLLAMA_BASE_URL` (défaut `http://localhost:11434`) et modèle `LANGEXTRACT_MODEL` |
-| FastEmbed | Embeddings locaux | Premier appel : téléchargement du modèle `EMBED_MODEL` |
+| FastEmbed | Embeddings locaux | Docker : poids dans l’image (`PREFETCH_EMBED=1`). Hors Docker : téléchargement au premier appel |
 
 Sans Qdrant, l’étape 6 échoue. Sans Ollama, LangExtract lève une exception : l’ingest **continue** tout de même (chunks + embeddings sans métadonnées), avec un warning. Voir § 8.
 
@@ -157,7 +158,7 @@ Appel : `LiteParse.parse(...)` avec notamment :
 - `extract_links=True`
 - `include_complexity=True`
 
-Les pages sont **concaténées** dans l’ordre. Entre deux pages non vides : `"\n\n"`. Pour chaque page on mémorise un `PageSpan` **dans le Markdown concaténé** :
+Les pages sont **concaténées** dans l’ordre. Entre deux pages non vides : `"\n\n"`. **Page 1** conserve son en-tête (firme, titre, n° de projet). À partir de la page 2, les bandeaux répétitifs (firme, folio « Page 12 », même ligne en tête d’une majorité de pages) sont retirés (`src/rag_ingestion/headers.py`) avant concaténation — LiteParse est appelé avec `keep_headers_footers=True` pour ne pas les enlever aussi de la page 1. Pour chaque page on mémorise un `PageSpan` **dans le Markdown concaténé** :
 
 - `start` : offset caractère du début de la page dans la grande chaîne ;
 - `end` : offset de fin (exclus) ;
@@ -371,7 +372,7 @@ Le catalog n’est **pas** la source des fichiers. Un PDF n’entre dans le corp
 | Manuel | `rag-ingest ingest fichier.pdf` ou un dossier |
 | Un scan (cron) | `rag-ingest watch --once` |
 
-`watch` attend que la copie soit stable, calcule le SHA-256, **saute** si le hash est déjà dans le catalog (sauf `--force`), déplace le PDF vers `data/archive/{sha16}/` **puis** ingère depuis ce chemin. Échec → `data/failed/`.
+`watch` attend que la copie soit stable, calcule le SHA-256, **saute** si le hash est déjà dans le catalog **et** qu’un fichier reste dans `data/archive/{sha16}/` (sauf `--force`). Si l’archive a été vidée, le PDF est ré-ingéré. Déplace vers `data/archive/{sha16}/` **puis** ingère depuis ce chemin. Échec → `data/failed/`.
 
 ## Identité
 
@@ -451,6 +452,7 @@ Quality gates : Markdown vide ou 0 chunk → skip (CLI code `2`), pas d’upsert
 | `src/rag_ingestion/pipeline.py` | Enchaînement 6 étapes, skip, fiche parent |
 | `src/rag_ingestion/config.py` | `.env` + défauts |
 | `src/rag_ingestion/parse.py` | SHA-256, LiteParse inspect/parse, `page_for_span` |
+| `src/rag_ingestion/headers.py` | Bandeaux PDF : page 1 conservée, pages suivantes nettoyées |
 | `src/rag_ingestion/chunk.py` | Fenêtres, tableaux, `heading_path` |
 | `src/rag_ingestion/extract.py` | Chargement prompt/few-shots, Ollama, JSONL/HTML |
 | `src/rag_ingestion/extract_profile.py` | Routage du profil LangExtract (nom de fichier / heading / `--profile`) |
@@ -501,11 +503,11 @@ Classes utiles ÉES : `title`, `doc_type`, `entity` (`project_id`, `firm`, `clie
 
 `src/rag_ingestion/document_meta.py` agrège au niveau document. `src/rag_ingestion/catalog.py` upsert :
 
-- **sites** — `site_id`, lot, adresse, `lat`/`lon`, `geocode_status`
+- **sites** — `site_id`, lot, adresse, `lat`/`lon`, `lot_geojson`, `geocode_status`
 - **documents** — un PDF = une ligne (`project_id`, firme, titre, `site_id`, …)
 - **events** — dates typées (`iso_date`, `role`, `label`) pour la timeline
 
-Géocodage Nominatim **à l’ingest seulement**, si `GEOCODE_ENABLED=1` et le site n’est pas déjà `ok` (`src/rag_ingestion/geocode.py`). Échec → site créé, pin absent (`geocode_status=failed` / `skipped`).
+Géocodage **à l’ingest seulement**, si `GEOCODE_ENABLED=1` : polygone Cadastre QC (`src/rag_ingestion/cadastre.py`, champ `NO_LOT` espacé) si le lot est connu, sinon Nominatim sur l’adresse. Un site déjà `ok` **avec** polygone n’est pas rappelé ; un site geocodé par adresse est mis à jour dès qu’un lot est connu. Échec → pin absent (`geocode_status=failed` / `skipped`).
 
 `data/documents/{id}.json` = journal (timings, chemins) **plus** un dump de la fiche métier. L’UI lit SQLite, pas ce JSON.
 
@@ -545,11 +547,12 @@ Compose force `QDRANT_URL=http://qdrant:6333` et `DATA_DIR=/data` dans les conte
 | `lot_cadastral` | Chiffres seuls (`2363352`), jamais `2 363 352` ni `lot 2 363 352`. |
 | `address` | Adresse du **site étudié**, pas celle du bureau de la firme. |
 | `city` | Ville / municipalité si extraite. |
-| `lat`, `lon` | Géocodage à l’ingest ; `NULL` si échec ou adresse trop pauvre. |
+| `lat`, `lon` | Centroïde du polygone de lot, sinon Nominatim ; `NULL` si échec. |
+| `lot_geojson` | Géométrie GeoJSON du lot (Cadastre QC). `NULL` sans lot ou si le service n’a rien renvoyé. |
 | `geocode_status` | Ex. `ok` / `failed` / `skipped` / `pending`. |
 | `updated_at` | Dernier upsert. |
 
-Règle de fusion : après normalisation du lot (ou de l’adresse), `INSERT … ON CONFLICT(site_id)` : on **réutilise** le site existant. On ne géocode **que** si `lat`/`lon` sont encore nuls (éviter de rappeler l’API de géocodage à chaque ré-ingest).
+Règle de fusion : après normalisation du lot (ou de l’adresse), on **réutilise** le site existant. Cadastre / Nominatim ne sont rappelés que s’il manque le polygone (lot connu) ou le point (`geocode_status` ≠ `ok`). Un site geocodé par adresse est mis à jour dès qu’un lot est connu.
 
 #### `documents` — le rapport
 

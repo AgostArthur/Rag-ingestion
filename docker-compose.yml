@@ -4,13 +4,11 @@
 #   cp .env.example .env
 #   docker compose up -d --build
 #   # UI: http://localhost:3000  — drop PDFs into ./incoming
+#   # First build downloads EMBED_MODEL (FastEmbed). PREFETCH_EMBED=0 to skip.
 #
 # Optional LangExtract via Ollama in Compose:
 #   docker compose --profile extract up -d
 #   # and set OLLAMA_BASE_URL=http://ollama:11434 in .env
-#
-# Client air-gap image (embeddings baked in):
-#   PREFETCH_EMBED=1 docker compose build
 
 x-app-env: &app-env
   QDRANT_URL: http://qdrant:6333
@@ -29,8 +27,8 @@ x-app: &app
     context: .
     dockerfile: Dockerfile
     args:
-      EMBED_MODEL: ${EMBED_MODEL:-intfloat/multilingual-e5-large}
-      PREFETCH_EMBED: ${PREFETCH_EMBED:-0}
+      EMBED_MODEL: ${EMBED_MODEL:-sentence-transformers/paraphrase-multilingual-mpnet-base-v2}
+      PREFETCH_EMBED: ${PREFETCH_EMBED:-1}
   env_file:
     - path: .env
       required: false

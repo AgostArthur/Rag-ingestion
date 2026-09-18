@@ -230,6 +230,10 @@ def test_sites_geojson_skips_null_coords(tmp_path: Path):
 
 def test_geocode_on_upsert(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
+        "rag_ingestion.cadastre.lookup_lot_geometry",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
         "rag_ingestion.geocode.geocode_address",
         lambda *a, **k: (45.849, -73.482),
     )
@@ -243,5 +247,100 @@ def test_geocode_on_upsert(tmp_path: Path, monkeypatch):
     assert site["lat"] == 45.849
     assert site["lon"] == -73.482
     assert site["geocode_status"] == "ok"
+    assert site["lot_geometry"] is None
     geo = sites_geojson([site])
     assert geo["features"][0]["geometry"]["coordinates"] == [-73.482, 45.849]
+
+
+def test_cadastre_polygon_on_upsert(tmp_path: Path, monkeypatch):
+    geom = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-73.51, 45.85],
+                [-73.51, 45.86],
+                [-73.50, 45.86],
+                [-73.50, 45.85],
+                [-73.51, 45.85],
+            ]
+        ],
+    }
+    monkeypatch.setattr(
+        "rag_ingestion.cadastre.lookup_lot_geometry",
+        lambda *a, **k: {"geometry": geom, "lat": 45.855, "lon": -73.505, "no_lot": "2 363 352"},
+    )
+    monkeypatch.setattr(
+        "rag_ingestion.geocode.geocode_address",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("address fallback should not run")),
+    )
+    settings = Settings(**{**_settings(tmp_path).__dict__, "geocode_enabled": True})
+    upsert_document_meta(_meta(), settings=settings)
+    site = get_site("lot:2363352", settings=settings)
+    assert site is not None
+    assert site["lat"] == 45.855
+    assert site["lon"] == -73.505
+    assert site["lot_geometry"]["type"] == "Polygon"
+    geo = sites_geojson([site])
+    assert geo["features"][0]["geometry"]["type"] == "Polygon"
+
+    calls = {"n": 0}
+
+    def counted(*a, **k):
+        calls["n"] += 1
+        return {
+            "geometry": geom,
+            "lat": 45.855,
+            "lon": -73.505,
+            "no_lot": "2 363 352",
+        }
+
+    monkeypatch.setattr("rag_ingestion.cadastre.lookup_lot_geometry", counted)
+    upsert_document_meta(
+        _meta(document_id="bbb", source_path="/tmp/b.pdf"),
+        settings=settings,
+    )
+    assert calls["n"] == 0
+
+
+def test_cadastre_upgrades_address_geocode(tmp_path: Path, monkeypatch):
+    geom = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-73.51, 45.85],
+                [-73.51, 45.86],
+                [-73.50, 45.86],
+                [-73.50, 45.85],
+                [-73.51, 45.85],
+            ]
+        ],
+    }
+    monkeypatch.setattr("rag_ingestion.cadastre.lookup_lot_geometry", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "rag_ingestion.geocode.geocode_address",
+        lambda *a, **k: (45.55, -73.60),
+    )
+    settings = Settings(**{**_settings(tmp_path).__dict__, "geocode_enabled": True})
+    upsert_document_meta(_meta(), settings=settings)
+    site = get_site("lot:2363352", settings=settings)
+    assert site is not None
+    assert site["lat"] == 45.55
+    assert site["lot_geometry"] is None
+
+    monkeypatch.setattr(
+        "rag_ingestion.cadastre.lookup_lot_geometry",
+        lambda *a, **k: {
+            "geometry": geom,
+            "lat": 45.855,
+            "lon": -73.505,
+            "no_lot": "2 363 352",
+        },
+    )
+    upsert_document_meta(
+        _meta(document_id="bbb", source_path="/tmp/b.pdf"),
+        settings=settings,
+    )
+    site = get_site("lot:2363352", settings=settings)
+    assert site is not None
+    assert site["lat"] == 45.855
+    assert site["lot_geometry"]["type"] == "Polygon"

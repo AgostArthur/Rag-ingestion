@@ -4,7 +4,7 @@ Pipeline : PDF → LiteParse (OCR) → Markdown → chunks + LangExtract → **c
 
 - `rag_ingestion` — ingest, recherche hybride, catalog (`sites` / `documents` / `events`)
 - `chatbot` — agent LangGraph ; outil `search_knowledge`. `POST /chat` renvoie `focus` + citations issus des hits
-- `ui/` — carte (un pin = un site), chronologie du site, chat (`document_id` si on clique un rapport)
+- `ui/` — carte (polygone de lot + pin au centroïde), chronologie du site, chat (`document_id` si on clique un rapport)
 
 ## Déploiement via Docker
 
@@ -16,12 +16,14 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+Le premier build télécharge le modèle FastEmbed (`EMBED_MODEL`). Pour sauter ça : `PREFETCH_EMBED=0 docker compose build`.
+
 - Interface : `http://localhost:3000` (nginx reverse-proxy vers l’API)
-- PDF → `incoming/` → worker → `data/archive/{sha}/` (doublon SHA-256 : archivé sans ré-ingest). Échecs → `data/failed/`
+- PDF → `incoming/` → worker → `data/archive/{sha}/` (même SHA déjà au catalog **et** encore en archive : pas de ré-ingest). Échecs → `data/failed/`
 - API brute : `http://localhost:8000`
 - Qdrant : `http://localhost:6333`
 
-Image embeddings préchargée : `PREFETCH_EMBED=1 docker compose build`
+Image embeddings préchargée : c’est le défaut (`PREFETCH_EMBED=1`).
 
 LLM hors image (chat + LangExtract). Un switch dans `.env` :
 
@@ -36,7 +38,7 @@ Overrides : `CHAT_PROVIDER`, `LANGEXTRACT_PROVIDER`. Embeddings FastEmbed **inch
 
 ## Ingest
 
-Le catalog SQLite est le **registre** écrit après ingest (`document_id` = SHA-256). `site_id` = lot (`lot:2363352`) sinon adresse. 4405 et 2259 partagent un site. Nominatim remplit `lat`/`lon` (`GEOCODE_ENABLED=1`).
+Le catalog SQLite est le **registre** écrit après ingest (`document_id` = SHA-256). `site_id` = lot (`lot:2363352`) sinon adresse. 4405 et 2259 partagent un site. Le cadastre QC fournit le polygone du lot ; Nominatim n’est qu’un repli sans lot (`GEOCODE_ENABLED=1`).
 
 | Déclencheur | Commande |
 |---|---|

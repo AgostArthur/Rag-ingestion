@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from rag_ingestion.config import Settings, load_settings
+from rag_ingestion.headers import strip_running_headers
 from rag_ingestion.models import InspectReport, PageSpan, ParsedDocument
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,8 @@ def parse_pdf(path: Path, settings: Settings | None = None) -> ParsedDocument:
         "image_mode": "placeholder",
         "extract_links": True,
         "include_complexity": True,
+        # On retire le bandeau nous-mêmes après la page 1 (identité du rapport).
+        "keep_headers_footers": True,
         "quiet": True,
     }
     if s.ocr_server_url:
@@ -148,9 +151,17 @@ def parse_pdf(path: Path, settings: Settings | None = None) -> ParsedDocument:
     spans: list[PageSpan] = []
     offset = 0
     inspect_by_page = {p.page_num: p for p in inspect.pages}
+    raw_pages = [(page.markdown or page.text or "").strip() for page in result.pages]
+    page_texts, header_stats = strip_running_headers(raw_pages)
+    if header_stats.lines_removed:
+        logger.info(
+            "  Running headers dropped after page 1: %s page(s), %s line(s)",
+            header_stats.pages_stripped,
+            header_stats.lines_removed,
+        )
 
     for i, page in enumerate(result.pages):
-        md = (page.markdown or page.text or "").strip()
+        md = page_texts[i] if i < len(page_texts) else ""
         start = offset
         parts.append(md)
         offset += len(md)

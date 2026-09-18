@@ -61,6 +61,9 @@ def test_duplicate_hash_is_archived_without_ingest(tmp_path: Path, monkeypatch):
         ),
         settings=settings,
     )
+    seed = settings.resolved_archive_dir() / doc_id[:16]
+    seed.mkdir(parents=True)
+    (seed / "kept.pdf").write_bytes(payload)
     called = {"n": 0}
 
     def boom(*_a, **_k):
@@ -74,6 +77,40 @@ def test_duplicate_hash_is_archived_without_ingest(tmp_path: Path, monkeypatch):
     assert not pdf.exists()
     assert item.dest is not None and item.dest.is_file()
     assert called["n"] == 0
+
+
+def test_empty_archive_reingests_even_if_catalog_has_hash(tmp_path: Path, monkeypatch):
+    settings = _settings(tmp_path)
+    payload = b"%PDF-1.4 was-archived"
+    pdf = settings.resolved_incoming_dir() / "again.pdf"
+    pdf.write_bytes(payload)
+    doc_id = document_id_from_bytes(payload)
+    upsert_document_meta(
+        DocumentMeta(
+            document_id=doc_id,
+            source_path=str(pdf),
+            parse_quality="ok",
+        ),
+        settings=settings,
+    )
+    called = {"n": 0}
+
+    def fake_ingest(path, *, settings=None, skip_extract=False):
+        called["n"] += 1
+        return IngestResult(
+            document_id=doc_id,
+            n_chunks=1,
+            n_extractions=0,
+            parse_quality="ok",
+            warnings=[],
+            skipped=False,
+        )
+
+    monkeypatch.setattr("rag_ingestion.inbox.ingest_path", fake_ingest)
+    item = process_inbox_file(pdf, settings=settings, stable_wait=0)
+    assert item.action == "ingested"
+    assert called["n"] == 1
+    assert not pdf.exists()
 
 
 def test_successful_ingest_moves_to_archive(tmp_path: Path, monkeypatch):

@@ -15,23 +15,22 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY config ./config
 COPY docker/entrypoint.sh /entrypoint.sh
+COPY docker/prefetch_embed.py /prefetch_embed.py
 RUN chmod +x /entrypoint.sh \
     && pip install --no-cache-dir -e ".[chat]"
 
-ARG EMBED_MODEL=intfloat/multilingual-e5-large
-ARG PREFETCH_EMBED=0
+ARG EMBED_MODEL=sentence-transformers/paraphrase-multilingual-mpnet-base-v2
+ARG PREFETCH_EMBED=1
 ENV EMBED_MODEL=${EMBED_MODEL} \
     DATA_DIR=/data \
     INCOMING_DIR=/incoming \
     PYTHONUNBUFFERED=1 \
     CHAT_API_HOST=0.0.0.0 \
-    CHAT_API_PORT=8000
+    CHAT_API_PORT=8000 \
+    HF_HUB_DISABLE_TELEMETRY=1
 
-# Bake the embedding model into the image for air-gapped / client pulls.
-# First build with PREFETCH_EMBED=1 is slow; skip with 0 for local iteration.
-RUN if [ "$PREFETCH_EMBED" = "1" ]; then \
-      python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='${EMBED_MODEL}')"; \
-    fi
+# Bake FastEmbed weights into the image. First build is slow; PREFETCH_EMBED=0 to skip.
+RUN if [ "$PREFETCH_EMBED" = "1" ]; then python /prefetch_embed.py; fi
 
 VOLUME ["/data", "/incoming"]
 EXPOSE 8000

@@ -90,9 +90,17 @@ def _move(path: Path, dest: Path) -> Path:
 
 
 def archive_destination(archive_root: Path, document_id: str, original_name: str) -> Path:
-    """`archive/{sha12}/{filename}` pour relier le fichier au catalog."""
+    """`archive/{sha16}/{filename}` pour relier le fichier au catalog."""
     folder = archive_root / document_id[:16]
     return _unique_path(folder, original_name)
+
+
+def archive_has_copy(archive_root: Path, document_id: str) -> bool:
+    """True s'il reste un fichier sous `archive/{sha16}/`."""
+    folder = archive_root / document_id[:16]
+    if not folder.is_dir():
+        return False
+    return any(path.is_file() for path in folder.iterdir())
 
 
 def process_inbox_file(
@@ -115,17 +123,25 @@ def process_inbox_file(
 
     original_name = path.name
     if skip_existing and document_exists(document_id, settings=settings):
-        dest = archive_destination(
-            settings.resolved_archive_dir(), document_id, original_name
-        )
-        dest = _move(path, dest)
-        logger.info("  Duplicate SHA-256 %s — archived without re-ingest → %s", document_id[:12], dest)
-        return InboxItem(
-            path=path,
-            document_id=document_id,
-            action="skipped_duplicate",
-            dest=dest,
-            detail="already in catalog",
+        archive_root = settings.resolved_archive_dir()
+        if archive_has_copy(archive_root, document_id):
+            dest = archive_destination(archive_root, document_id, original_name)
+            dest = _move(path, dest)
+            logger.info(
+                "  Duplicate SHA-256 %s — archived without re-ingest → %s",
+                document_id[:12],
+                dest,
+            )
+            return InboxItem(
+                path=path,
+                document_id=document_id,
+                action="skipped_duplicate",
+                dest=dest,
+                detail="already in catalog",
+            )
+        logger.info(
+            "  SHA-256 %s is in catalog but archive is empty — re-ingesting",
+            document_id[:12],
         )
 
     dest = archive_destination(

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sites (
     lat REAL,
     lon REAL,
     geocode_status TEXT NOT NULL DEFAULT 'skipped',
+    lot_geojson TEXT,
     updated_at TEXT NOT NULL
 );
 
@@ -91,6 +92,7 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
     """Crée les tables si besoin et complète les colonnes ajoutées plus tard."""
     conn.executescript(_SCHEMA)
     _ensure_column(conn, "documents", "contaminants", "TEXT")
+    _ensure_column(conn, "sites", "lot_geojson", "TEXT")
     conn.commit()
 
 
@@ -175,16 +177,51 @@ def _merge_address_sites_into(
 
 
 def _geocode_site(conn: sqlite3.Connection, site_id: str, *, settings: Settings) -> None:
-    """Remplit lat/lon si GEOCODE_ENABLED et le site n'est pas déjà `ok`."""
+    """Remplit lat/lon (+ polygone de lot) si GEOCODE_ENABLED.
+
+    Priorité : polygone Cadastre QC si `lot_cadastral`, sinon Nominatim sur l'adresse.
+    """
     if not settings.geocode_enabled:
         return
     row = conn.execute(
-        "SELECT address, city, lat, lon, geocode_status FROM sites WHERE site_id = ?",
+        "SELECT lot_cadastral, address, city, lat, lon, geocode_status, lot_geojson "
+        "FROM sites WHERE site_id = ?",
         (site_id,),
     ).fetchone()
     if row is None:
         return
-    if row["lat"] is not None and row["lon"] is not None and row["geocode_status"] == "ok":
+    lot = row["lot_cadastral"]
+    has_lot_geom = bool(row["lot_geojson"])
+    has_point = row["lat"] is not None and row["lon"] is not None and row["geocode_status"] == "ok"
+    if has_lot_geom and has_point:
+        return
+    now = _now()
+    if lot and not has_lot_geom:
+        from rag_ingestion.cadastre import lookup_lot_geometry
+
+        found = lookup_lot_geometry(lot, user_agent=settings.geocode_user_agent)
+        if found:
+            conn.execute(
+                "UPDATE sites SET lat = ?, lon = ?, geocode_status = ?, lot_geojson = ?, "
+                "updated_at = ? WHERE site_id = ?",
+                (
+                    found["lat"],
+                    found["lon"],
+                    "ok",
+                    json.dumps(found["geometry"], separators=(",", ":")),
+                    now,
+                    site_id,
+                ),
+            )
+            logger.info(
+                "  Cadastre lot %s → %s, %s",
+                lot,
+                found["lat"],
+                found["lon"],
+            )
+            return
+        logger.warning("  Cadastre polygon missing for lot %s", lot)
+    if has_point:
         return
     from rag_ingestion.geocode import geocode_address
 
@@ -193,7 +230,6 @@ def _geocode_site(conn: sqlite3.Connection, site_id: str, *, settings: Settings)
         city=row["city"],
         user_agent=settings.geocode_user_agent,
     )
-    now = _now()
     if coords is None:
         conn.execute(
             "UPDATE sites SET geocode_status = ?, updated_at = ? WHERE site_id = ?",
@@ -206,7 +242,7 @@ def _geocode_site(conn: sqlite3.Connection, site_id: str, *, settings: Settings)
         "UPDATE sites SET lat = ?, lon = ?, geocode_status = ?, updated_at = ? WHERE site_id = ?",
         (lat, lon, "ok", now, site_id),
     )
-    logger.info("  Geocoded site %s → %s, %s", site_id, lat, lon)
+    logger.info("  Geocoded site %s (address) → %s, %s", site_id, lat, lon)
 
 
 def upsert_document_meta(meta: DocumentMeta, settings: Settings | None = None) -> DocumentMeta:
@@ -335,6 +371,21 @@ def _document_dict(row: sqlite3.Row, site: sqlite3.Row | None = None) -> dict[st
     return out
 
 
+def _parse_lot_geometry(row: sqlite3.Row) -> dict[str, Any] | None:
+    if "lot_geojson" not in row.keys():
+        return None
+    raw = row["lot_geojson"]
+    if not raw:
+        return None
+    try:
+        geom = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(geom, dict) or not geom.get("type"):
+        return None
+    return geom
+
+
 def _site_dict(row: sqlite3.Row, document_ids: list[str] | None = None) -> dict[str, Any]:
     return {
         "site_id": row["site_id"],
@@ -344,6 +395,7 @@ def _site_dict(row: sqlite3.Row, document_ids: list[str] | None = None) -> dict[
         "lat": row["lat"],
         "lon": row["lon"],
         "geocode_status": row["geocode_status"],
+        "lot_geometry": _parse_lot_geometry(row),
         "updated_at": row["updated_at"],
         "document_ids": document_ids if document_ids is not None else [],
     }
@@ -678,19 +730,28 @@ def list_sites(
 
 
 def sites_geojson(sites: list[dict[str, Any]]) -> dict[str, Any]:
-    """FeatureCollection des sites qui ont lat/lon."""
+    """FeatureCollection : polygone de lot si présent, sinon point lat/lon."""
     features: list[dict[str, Any]] = []
     for site in sites:
+        lot_geom = site.get("lot_geometry")
         lat = site.get("lat")
         lon = site.get("lon")
-        if lat is None or lon is None:
+        if isinstance(lot_geom, dict) and lot_geom.get("type"):
+            geometry = lot_geom
+        elif lat is not None and lon is not None:
+            geometry = {"type": "Point", "coordinates": [float(lon), float(lat)]}
+        else:
             continue
-        props = {k: v for k, v in site.items() if k not in {"lat", "lon"}}
+        props = {
+            k: v
+            for k, v in site.items()
+            if k not in {"lat", "lon", "lot_geometry"}
+        }
         features.append(
             {
                 "type": "Feature",
                 "id": site.get("site_id"),
-                "geometry": {"type": "Point", "coordinates": [float(lon), float(lat)]},
+                "geometry": geometry,
                 "properties": props,
             }
         )
