@@ -122,6 +122,14 @@ def _archive_or_reuse(path: Path, archive_root: Path, document_id: str, original
     return _move(path, archive_destination(archive_root, document_id, original_name))
 
 
+def archive_has_copy(archive_root: Path, document_id: str) -> bool:
+    """True s'il reste un fichier sous `archive/{sha16}/`."""
+    folder = archive_root / document_id[:16]
+    if not folder.is_dir():
+        return False
+    return any(path.is_file() for path in folder.iterdir())
+
+
 def process_inbox_file(
     path: Path,
     *,

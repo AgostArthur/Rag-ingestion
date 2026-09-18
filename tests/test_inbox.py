@@ -61,6 +61,9 @@ def test_duplicate_hash_is_archived_without_ingest(tmp_path: Path, monkeypatch):
         ),
         settings=settings,
     )
+    seed = settings.resolved_archive_dir() / doc_id[:16]
+    seed.mkdir(parents=True)
+    (seed / "kept.pdf").write_bytes(payload)
     called = {"n": 0}
 
     def boom(*_a, **_k):
