@@ -1,6 +1,7 @@
 // Client shell: map + chronologie + chat. Data comes from rag-chat catalog, not mock SITES.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, MapContainer, TileLayer, useMap } from "react-leaflet";
+import { CircleMarker, GeoJSON, MapContainer, TileLayer, useMap } from "react-leaflet";
+import L from "leaflet";
 import { Clock, Send, ShieldCheck } from "lucide-react";
 import {
   docTypeLabel,
@@ -18,13 +19,64 @@ import ChatTiming from "./ChatTiming";
 
 const QC_CENTER = { lat: 46.8139, lng: -71.208 };
 
-function PanTo({ pos }) {
+function SiteLayer({ site, selected, onSelect }) {
+  const pos = pinPosition(site);
+  const feature =
+    site.lot_geometry && site.lot_geometry.type
+      ? {
+          type: "Feature",
+          properties: { site_id: site.site_id },
+          geometry: site.lot_geometry,
+        }
+      : null;
+  if (!pos && !feature) return null;
+  return (
+    <>
+      {feature ? (
+        <GeoJSON
+          key={`${site.site_id}-lot-${selected ? "on" : "off"}`}
+          data={feature}
+          style={{
+            color: selected ? "#3DA821" : "#475569",
+            weight: selected ? 3 : 2,
+            fillColor: selected ? "#50C32A" : "#94a3b8",
+            fillOpacity: selected ? 0.4 : 0.22,
+          }}
+          eventHandlers={{ click: () => onSelect(site.site_id) }}
+        />
+      ) : null}
+      {pos ? (
+        <CircleMarker
+          center={[pos.lat, pos.lng]}
+          radius={selected ? 8 : 6}
+          pathOptions={{
+            color: "#fff",
+            weight: 2,
+            fillColor: selected ? "#50C32A" : "#64748b",
+            fillOpacity: 1,
+          }}
+          eventHandlers={{ click: () => onSelect(site.site_id) }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function FocusSite({ geometry, pos }) {
   const map = useMap();
   useEffect(() => {
-    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
-      map.panTo([pos.lat, pos.lng]);
+    if (geometry && geometry.type) {
+      const layer = L.geoJSON(geometry);
+      const bounds = layer.getBounds();
+      if (bounds.isValid()) {
+        map.fitBounds(bounds, { padding: [48, 48], maxZoom: 18 });
+        return;
+      }
     }
-  }, [map, pos]);
+    if (pos && Number.isFinite(pos.lat) && Number.isFinite(pos.lng)) {
+      map.setView([pos.lat, pos.lng], Math.max(map.getZoom() || 8, 16));
+    }
+  }, [map, geometry, pos]);
   return null;
 }
 
@@ -167,7 +219,6 @@ function App() {
     }
   }, [draft, busy, threadId, activeId, focusedDoc]);
 
-  const mapCenter = activePos || QC_CENTER;
   const timelineItems = useMemo(
     () => groupTimeline(documents, events),
     [documents, events]
@@ -189,26 +240,18 @@ function App() {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
-        <PanTo pos={mapCenter} />
-        {sites.map((s) => {
-          const pos = pinPosition(s);
-          if (!pos) return null;
-          const selected = activeId === s.site_id;
-          return (
-            <CircleMarker
-              key={s.site_id}
-              center={[pos.lat, pos.lng]}
-              radius={selected ? 12 : 8}
-              pathOptions={{
-                color: "#fff",
-                weight: 2,
-                fillColor: selected ? "#50C32A" : "#64748b",
-                fillOpacity: 1,
-              }}
-              eventHandlers={{ click: () => selectSite(s.site_id) }}
-            />
-          );
-        })}
+        <FocusSite
+          geometry={activeSite && activeSite.lot_geometry}
+          pos={activePos}
+        />
+        {sites.map((s) => (
+          <SiteLayer
+            key={`${s.site_id}-${s.lot_geometry ? "poly" : "pt"}-${s.lat}-${s.lon}`}
+            site={s}
+            selected={activeId === s.site_id}
+            onSelect={selectSite}
+          />
+        ))}
       </MapContainer>
 
       <div
@@ -241,10 +284,12 @@ function App() {
         {activeSite ? (
           <>
             <div style={{ fontSize: 14, fontWeight: 700, color: "#3DA821" }}>
-              {activeSite.address || activeSite.site_id}
+              {activeSite.lot_cadastral
+                ? `Lot ${activeSite.lot_cadastral}`
+                : activeSite.address || activeSite.site_id}
             </div>
             <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8 }}>
-              {[activeSite.city, activeSite.lot_cadastral && `lot ${activeSite.lot_cadastral}`]
+              {[activeSite.address, activeSite.city]
                 .filter(Boolean)
                 .join(" · ") || activeSite.site_id}
             </div>
@@ -262,6 +307,11 @@ function App() {
             >
               ● {nDocs} rapport{nDocs === 1 ? "" : "s"}
             </div>
+            {activeSite.lot_cadastral && !activeSite.lot_geometry && (
+              <div style={{ marginTop: 8, fontSize: 10, color: "#b45309" }}>
+                Polygone de lot absent — ré-ingérez le PDF (cadastre QC).
+              </div>
+            )}
             {activeSite.geocode_status && activeSite.geocode_status !== "ok" && (
               <div style={{ marginTop: 8, fontSize: 10, color: "#b45309" }}>
                 Pas de coordonnées ({activeSite.geocode_status})
@@ -283,8 +333,8 @@ function App() {
             lineHeight: 1.4,
           }}
         >
-          Une épingle = un site. Plusieurs rapports (ex. 4405 et 2259) se
-          regroupent ici.
+          Une épingle = le centroïde du lot. Le polygone = le cadastre
+          (plusieurs rapports se regroupent ici).
         </div>
       </div>
     </>

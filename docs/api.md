@@ -9,7 +9,7 @@ Le modèle **n’a pas** les chunks dans le prompt. Il appelle l’outil `search
 | Méthode | Usage |
 |---|---|
 | `GET /health` | Qdrant, SQLite, LLM (`provider`, `/v1/models`). Alias `llama_server` = `llm`. |
-| `GET /sites` | Liste des sites. `?bbox=min_lon,min_lat,max_lon,max_lat`. `?geojson=true` → FeatureCollection |
+| `GET /sites` | Liste. Chaque site inclut `lot_geometry` (polygone GeoJSON) et `lat`/`lon` (centroïde). `?bbox=min_lon,min_lat,max_lon,max_lat`. `?geojson=true` → FeatureCollection (polygone si connu, sinon Point) |
 | `GET /sites/{site_id}` | Fiche + `document_ids` (`site_id` à encoder, ex. `lot%3A2363352`) |
 | `GET /sites/{site_id}/timeline` | Events triés (`iso_date`, `role`, titre / firme du PDF). Repli `report_date` s’il n’y a pas d’events |
 | `GET /documents/{document_id}` | Fiche rapport + champs du site |
@@ -67,11 +67,11 @@ REPL : `rag-chat` (JSON `focus` sous la réponse). LLM : `OPENAI_*` ou `LLAMA_SE
 
 Trois panneaux, un état `activeId` = `site_id` catalog :
 
-1. **Carte** — `GET /sites`, un pin Leaflet par site avec `lat`/`lon` (tuiles OpenStreetMap). Clic → sélection du site. Sans coordonnées : overlay adresse seulement.
+1. **Carte** — `GET /sites`, polygone du lot cadastral (Cadastre QC) + pin au centroïde. Sans lot : point Nominatim. Clic → sélection du site.
 2. **Chronologie** — `GET /sites/{id}/timeline`. Clic sur un rapport → chip `@fichier` et `document_id` pour le prochain `POST /chat`.
 3. **Chat** — `POST /chat` avec `site_id` et éventuellement `document_id`. Si `focus.site_ids[0]` revient, la carte suit.
 
-Pas de pin par forage / puits : le catalog n’a qu’un point par **site**.
+Pas de pin par forage / puits : le catalog a un polygone (ou un point) par **site**.
 
 ## Succès métier
 
