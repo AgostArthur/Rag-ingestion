@@ -143,6 +143,7 @@ class Settings:
     ingest_poll_seconds: int = 10
     ingest_skip_existing: bool = True
     ingest_skip_extract: bool = False
+    ingest_log_file: Path | None = None
     langextract_profiles_file: Path | None = None
     geocode_enabled: bool = False
     geocode_user_agent: str = "rag-ingestion/0.1 (enviro-rag)"
@@ -179,6 +180,10 @@ class Settings:
         """PDF dont l'ingest a échoué."""
         return self.failed_dir or (self.data_dir / "failed")
 
+    def resolved_ingest_log_path(self) -> Path:
+        """Fichier JSONL du journal d'ingest (une ligne par tentative)."""
+        return self.ingest_log_file or (self.data_dir / "log_ingest.jsonl")
+
 
 def load_settings() -> Settings:
     """Lit `.env` et retourne un `Settings` immuable.
@@ -200,6 +205,25 @@ def load_settings() -> Settings:
         if not path.is_absolute():
             path = root / path
         return path
+
+    def _resolve_ingest_log_file(raw: str, *, data_dir: Path) -> Path | None:
+        """Chemin du journal JSONL.
+
+        Relatif → toujours sous ``data_dir`` (ex. ``data/log_ingest.jsonl`` ou
+        ``log_ingest.jsonl`` → ``{DATA_DIR}/log_ingest.jsonl``), pour que Docker
+        (``DATA_DIR=/data`` monté sur ``./data``) et le CLI local écrivent
+        au même endroit.
+        """
+        value = (raw or "").strip()
+        if not value:
+            return None
+        path = Path(value)
+        if path.is_absolute():
+            return path
+        parts = path.parts
+        if parts and parts[0] == data_dir.name:
+            return data_dir.joinpath(*parts[1:]) if len(parts) > 1 else data_dir / "log_ingest.jsonl"
+        return data_dir / path
 
     return Settings(
         qdrant_url=os.getenv("QDRANT_URL", DEFAULT_QDRANT_URL).rstrip("/"),
@@ -243,6 +267,10 @@ def load_settings() -> Settings:
         ingest_poll_seconds=_int_env("INGEST_POLL_SECONDS", 10, minimum=1),
         ingest_skip_existing=_bool_env("INGEST_SKIP_EXISTING", True),
         ingest_skip_extract=_bool_env("INGEST_SKIP_EXTRACT", False),
+        ingest_log_file=_resolve_ingest_log_file(
+            os.getenv("INGEST_LOG_FILE", ""),
+            data_dir=data_dir,
+        ),
         geocode_enabled=_bool_env("GEOCODE_ENABLED", True),
         geocode_user_agent=(
             os.getenv("GEOCODE_USER_AGENT", "").strip() or "rag-ingestion/0.1 (enviro-rag)"
