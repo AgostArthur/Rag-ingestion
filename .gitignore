@@ -27,6 +27,7 @@ data/catalog.sqlite-shm
 data/chat_checkpoints.sqlite
 data/chat_checkpoints.sqlite-wal
 data/chat_checkpoints.sqlite-shm
+data/log_ingest.jsonl
 !data/parsed/.gitkeep
 !data/extractions/.gitkeep
 !data/documents/.gitkeep

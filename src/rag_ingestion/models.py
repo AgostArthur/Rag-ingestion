@@ -146,3 +146,12 @@ class IngestResult:
     site_id: str | None = None
     project_id: str | None = None
     error: str | None = None
+    # Profil LangExtract retenu (toujours renseigné, même si skip_extract=True)
+    profile_id: str | None = None
+    profile_match_source: str | None = None
+    # Chemin source du PDF (avant déplacement par l'inbox)
+    source_path: str | None = None
+    # Métadonnées ingest supplémentaires pour le journal
+    n_pages: int | None = None
+    n_needs_ocr: int | None = None
+    doc_type: str | None = None

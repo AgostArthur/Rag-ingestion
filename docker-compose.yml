@@ -16,6 +16,8 @@ x-app-env: &app-env
   INCOMING_DIR: /incoming
   ARCHIVE_DIR: /data/archive
   FAILED_DIR: /data/failed
+  # Journal d'ingest (même fichier que le CLI local via volume ./data:/data)
+  INGEST_LOG_FILE: /data/log_ingest.jsonl
   CHAT_API_HOST: 0.0.0.0
   CHAT_API_PORT: "8000"
   CHAT_CHECKPOINT_DB: /data/chat_checkpoints.sqlite

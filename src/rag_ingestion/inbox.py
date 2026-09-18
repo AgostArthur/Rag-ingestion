@@ -15,6 +15,7 @@ from pathlib import Path
 
 from rag_ingestion.catalog import document_exists
 from rag_ingestion.config import Settings, load_settings
+from rag_ingestion.ingest_log import append_ingest_log, build_inbox_record
 from rag_ingestion.parse import document_id_from_bytes
 from rag_ingestion.pipeline import ingest_path
 
@@ -89,10 +90,36 @@ def _move(path: Path, dest: Path) -> Path:
     return dest
 
 
-def archive_destination(archive_root: Path, document_id: str, original_name: str) -> Path:
-    """`archive/{sha16}/{filename}` pour relier le fichier au catalog."""
+def existing_archive(archive_root: Path, document_id: str) -> Path | None:
+    """Premier PDF déjà présent sous ``archive/{sha16}/``, ou ``None``.
+
+    Le ``document_id`` est un SHA-256 du contenu : un second drop du même
+    fichier n'a pas besoin d'une autre copie dans l'archive.
+    """
     folder = archive_root / document_id[:16]
-    return _unique_path(folder, original_name)
+    if not folder.is_dir():
+        return None
+    pdfs = sorted(
+        p for p in folder.iterdir() if p.is_file() and p.suffix.lower() == ".pdf"
+    )
+    return pdfs[0] if pdfs else None
+
+
+def archive_destination(archive_root: Path, document_id: str, original_name: str) -> Path:
+    """``archive/{sha16}/{filename}`` — sans suffixe ``_N`` (un seul fichier par SHA)."""
+    folder = archive_root / document_id[:16]
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / original_name
+
+
+def _archive_or_reuse(path: Path, archive_root: Path, document_id: str, original_name: str) -> Path:
+    """Réutilise l'archive existante pour ce SHA, sinon déplace ``path`` vers l'archive."""
+    existing = existing_archive(archive_root, document_id)
+    if existing is not None:
+        if path.resolve() != existing.resolve():
+            path.unlink(missing_ok=True)
+        return existing
+    return _move(path, archive_destination(archive_root, document_id, original_name))
 
 
 def archive_has_copy(archive_root: Path, document_id: str) -> bool:
@@ -114,7 +141,19 @@ def process_inbox_file(
     """Déplace le PDF vers l'archive, ingère depuis ce chemin, ou vers `failed/`."""
     if not file_is_stable(path, wait_seconds=stable_wait):
         logger.info("  Unstable (copy in progress?): %s", path.name)
-        return InboxItem(path=path, document_id="", action="unstable", detail="file still changing")
+        item = InboxItem(path=path, document_id="", action="unstable", detail="file still changing")
+        append_ingest_log(
+            build_inbox_record(
+                status="unstable",
+                source_path=str(path),
+                dest_path=None,
+                document_id="",
+                filename=path.name,
+                detail="file still changing",
+            ),
+            settings.resolved_ingest_log_path(),
+        )
+        return item
 
     data = path.read_bytes()
     document_id = document_id_from_bytes(data)
@@ -122,32 +161,31 @@ def process_inbox_file(
     skip_existing = settings.ingest_skip_existing and not force
 
     original_name = path.name
+    archive_root = settings.resolved_archive_dir()
     if skip_existing and document_exists(document_id, settings=settings):
-        archive_root = settings.resolved_archive_dir()
-        if archive_has_copy(archive_root, document_id):
-            dest = archive_destination(archive_root, document_id, original_name)
-            dest = _move(path, dest)
-            logger.info(
-                "  Duplicate SHA-256 %s — archived without re-ingest → %s",
-                document_id[:12],
-                dest,
-            )
-            return InboxItem(
-                path=path,
-                document_id=document_id,
-                action="skipped_duplicate",
-                dest=dest,
-                detail="already in catalog",
-            )
-        logger.info(
-            "  SHA-256 %s is in catalog but archive is empty — re-ingesting",
-            document_id[:12],
+        dest = _archive_or_reuse(path, archive_root, document_id, original_name)
+        logger.info("  Duplicate SHA-256 %s — archived without re-ingest → %s", document_id[:12], dest)
+        item = InboxItem(
+            path=path,
+            document_id=document_id,
+            action="skipped_duplicate",
+            dest=dest,
+            detail="already in catalog",
         )
+        append_ingest_log(
+            build_inbox_record(
+                status="skipped_duplicate",
+                source_path=str(path),
+                dest_path=str(dest),
+                document_id=document_id,
+                filename=original_name,
+                detail="already in catalog",
+            ),
+            settings.resolved_ingest_log_path(),
+        )
+        return item
 
-    dest = archive_destination(
-        settings.resolved_archive_dir(), document_id, original_name
-    )
-    dest = _move(path, dest)
+    dest = _archive_or_reuse(path, archive_root, document_id, original_name)
 
     def _to_failed(detail: str, doc_id: str) -> InboxItem:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -163,7 +201,13 @@ def process_inbox_file(
         )
 
     try:
-        result = ingest_path(dest, settings=settings, skip_extract=skip_extract)
+        result = ingest_path(
+            dest,
+            settings=settings,
+            skip_extract=skip_extract,
+            trigger="inbox",
+            dest_path=dest,
+        )
     except Exception as exc:
         logger.exception("Inbox ingest failed: %s", original_name)
         return _to_failed(str(exc), document_id)
