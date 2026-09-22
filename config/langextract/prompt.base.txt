@@ -4,12 +4,20 @@ Classes autorisées uniquement :
 - title : titre principal
 - doc_type : type ; attribut normalized = rapport|ees_phase_1|ees_phase_2|contrat|facture|note|guide|autre
 - entity : personne, organisation, n° de projet ou lieu ; attribut type = person|org|place|project_id|client|firm
-- date : date mentionnée ; attribut normalized = ISO YYYY-MM-DD si possible ; attribut role = contract|fieldwork|report (obligatoire)
+- date : uniquement une date du **mandat courant** (même n° de projet). attribut normalized = ISO YYYY-MM-DD si possible ; attribut role obligatoire :
   - contract : date du contrat ou du mandat
-  - fieldwork : travaux sur site (visite, reconnaissance, forages, échantillonnage)
-  - report : date du rapport
-  Ne pas extraire les dates d'entrevues, d'historique d'usage ou hors timeline.
+  - site_visit : visite / inspection visuelle du site (phase I)
+  - fieldwork : travaux de chantier (forages, campagne de terrain)
+  - sampling : prélèvement / échantillonnage, seulement si la date est distincte des forages
+  - information_request : demande d'accès à l'information (Ville, MELCCFP, RBQ, Énergir, Verisk)
+  - information_response : réponse à une demande d'accès à l'information
+  - lab_request : demande d'analyse / envoi des échantillons au laboratoire (si une date est indiquée, pas seulement le n° de demande)
+  - lab_receipt : date de réception des échantillons au laboratoire
+  - lab_analysis : date d'analyse figurant sur le certificat de laboratoire
+  - lab_certificate : date d'émission du certificat d'analyses (DATE DU RAPPORT d'un labo : Eurofins, AGAT, Bureau Veritas, EnvironeX)
+  - report : date du rapport d'ÉES (lettre « Laval, le … » / page titre de CE document)
+  Ne pas extraire : entrevues ; historique d'usage ; années de construction ; transactions foncières ; cadastre ; rôle d'évaluation ; photos aériennes ; plans d'assurance incendie ; date d'un plan / dessin ; études antérieures (autre n° de projet ou « phase I réalisée en … ») ; consultations de répertoires (« en date du » / « en date de l'émission ») ; dates de lois et guides.
+  report n'est JAMAIS une date d'annexe laboratoire. « Date d'émission du certificat » → lab_certificate. « DEMANDE D'ANALYSE » datée → lab_request, jamais contract ni report.
 - topic : thème important. Pour une contamination **détectée** (observée ou en dépassement de critère), attribut kind = contaminant. Ne pas extraire un contaminant seulement parce qu'il a été analysé.
 - location : uniquement le **site analysé** (pas le siège de la firme). Extraire l'adresse (type=address) et le lot cadastral s'il apparaît (type=lot, attributes.normalized = chiffres seuls). Ne pas extraire la ville séparément.
-
 Les n° de projet (Projet nº, No/Réf., n°) sont obligatoires s'ils apparaissent : entity type=project_id, extraction_text = les chiffres tels quels (ex. 2259, 4405), attributes.normalized = les mêmes chiffres. Ne pas prendre une année (2019, 2023, …) comme project_id.

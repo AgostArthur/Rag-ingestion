@@ -23,6 +23,9 @@ def configure_logging(level: int = logging.INFO) -> None:
         datefmt=_DATE_FORMAT,
         force=True,
     )
+    # SDK Gemini (via LangExtract) et HTTP : WARNING+ seulement.
+    for name in ("google", "google_genai", "google.genai", "httpx"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def format_duration(seconds: float) -> str:

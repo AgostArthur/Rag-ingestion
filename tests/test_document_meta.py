@@ -166,7 +166,28 @@ def test_stamp_payloads_copies_site_and_project():
     assert payloads[0].contaminants == []
 
 
-def test_analysis_date_alias_becomes_fieldwork_event():
+def test_lab_certificate_date_becomes_event():
+    meta = build_document_meta(
+        [
+            GroundedExtraction(
+                extraction_id="c",
+                extraction_class="date",
+                extraction_text="2025-09-03",
+                start=None,
+                end=None,
+                attributes={"normalized": "2025-09-03", "role": "lab_certificate"},
+            ),
+        ],
+        document_id="doc",
+        source_path="/tmp/a.pdf",
+        parse_quality="ok",
+    )
+    assert [(e.role, e.iso_date) for e in meta.events] == [
+        ("lab_certificate", "2025-09-03")
+    ]
+
+
+def test_analysis_date_alias_becomes_lab_analysis_event():
     meta = build_document_meta(
         [
             GroundedExtraction(
@@ -183,6 +204,6 @@ def test_analysis_date_alias_becomes_fieldwork_event():
         parse_quality="ok",
     )
     assert [(e.role, e.iso_date) for e in meta.events] == [
-        ("fieldwork", "2019-08-17")
+        ("lab_analysis", "2019-08-17")
     ]
 

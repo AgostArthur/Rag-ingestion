@@ -113,6 +113,38 @@ def test_timeline_skips_non_timeline_roles(tmp_path: Path):
     assert [e["role"] for e in timeline] == ["report"]
 
 
+def test_timeline_keeps_lab_and_access_roles(tmp_path: Path):
+    settings = _settings(tmp_path)
+    upsert_document_meta(
+        _meta(
+            events=[
+                TypedEvent(
+                    iso_date="2025-09-03",
+                    role="lab_certificate",
+                    label="émission du certificat",
+                ),
+                TypedEvent(
+                    iso_date="2021-04-05",
+                    role="information_request",
+                    label="demande d'accès",
+                ),
+                TypedEvent(
+                    iso_date="2021-04-20",
+                    role="information_response",
+                    label="réponse MELCCFP",
+                ),
+            ]
+        ),
+        settings=settings,
+    )
+    timeline = get_site_timeline("lot:2363352", settings=settings)
+    assert {e["role"] for e in timeline} == {
+        "lab_certificate",
+        "information_request",
+        "information_response",
+    }
+
+
 def test_address_only_document_joins_existing_lot_site(tmp_path: Path):
     settings = _settings(tmp_path)
     upsert_document_meta(_meta(), settings=settings)

@@ -1,6 +1,6 @@
 [
   {
-    "text": "# Évaluation environnementale de site phase II\n\nENVIRO-EXPERTS — Projet nº : 4405\nClient : Gestion 341 inc.\nPropriété sise au 619, route 341, L'Épiphanie, Québec (lot 2 363 352).\nDate du contrat : 5 juin 2019.\nDate de l'analyse : 17 août 2019 (campagne de forages et échantillonnage).\nDate du rapport : 3 janvier 2023.\nPlan d'analyses : HAM, HAP, métaux.\nRésultats : dépassement des critères C pour les HAM dans les sols au forage F-3. HAP et métaux sous les critères applicables.",
+    "text": "# Évaluation environnementale de site phase II\n\nENVIRO-EXPERTS — Projet nº : 5982\nClient : M. Marcello Petreccia.\n11425, boulevard Langelier, Montréal, Québec (lot 1 669 394).\nLaval, le 23 septembre 2025.\nUne ÉES phase I a été réalisée en août 2025 (No/Réf. : 5915).\nLes travaux de chantier ont été réalisés le 25 août 2025.\nDate de prélèvement : 25-08-2025\nPlan de localisation — Date : 21-09-2025\nLes échantillons ont été soumis au laboratoire (demande d'analyse) le 26 août 2025.\nCERTIFICAT D'ANALYSES OFFICIEL. DEMANDE D'ANALYSE : 100380427\nDate d'émission du certificat : 2025-09-03\nDate de réception : 2025-08-26\nDate d'analyse : 2025-09-02\nRésultats : concentrations en HAP inférieures au critère B.",
     "extractions": [
       {
         "extraction_class": "title",
@@ -9,175 +9,109 @@
       {
         "extraction_class": "doc_type",
         "extraction_text": "Évaluation environnementale de site phase II",
-        "attributes": { "normalized": "ees_phase_2" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "4405",
-        "attributes": { "type": "project_id", "normalized": "4405" }
+        "attributes": {
+          "normalized": "ees_phase_2"
+        }
       },
       {
         "extraction_class": "entity",
         "extraction_text": "ENVIRO-EXPERTS",
-        "attributes": { "type": "firm" }
+        "attributes": {
+          "type": "firm"
+        }
       },
       {
         "extraction_class": "entity",
-        "extraction_text": "Gestion 341 inc.",
-        "attributes": { "type": "client" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "5 juin 2019",
-        "attributes": { "normalized": "2019-06-05", "role": "contract" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "17 août 2019",
-        "attributes": { "normalized": "2019-08-17", "role": "fieldwork" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "3 janvier 2023",
-        "attributes": { "normalized": "2023-01-03", "role": "report" }
-      },
-      {
-        "extraction_class": "location",
-        "extraction_text": "619, route 341, L'Épiphanie, Québec",
-        "attributes": { "type": "address" }
-      },
-      {
-        "extraction_class": "location",
-        "extraction_text": "lot 2 363 352",
-        "attributes": { "type": "lot", "normalized": "2363352" }
-      },
-      {
-        "extraction_class": "topic",
-        "extraction_text": "HAM",
-        "attributes": { "kind": "contaminant" }
-      }
-    ]
-  },
-  {
-    "text": "Géosphère Consultants — Projet nº : 2259\nÉES phase II.\nClient : Fiducie Route 341.\n619, Route 341, L'Épiphanie, lot 2 363 352.\nDate du contrat : 20 mars 2023.\nDate de l'analyse : 12 juin 2023 (forages et prélèvements).\nDate du rapport : 03 janvier 2024.\nPlan d'analyses : HAM, HAP, métaux.\nInterprétation : teneurs inférieures aux critères B dans les sols ; HAP au-dessus du critère B dans l'eau au puits PO-2.",
-    "extractions": [
-      {
-        "extraction_class": "title",
-        "extraction_text": "ÉES phase II"
-      },
-      {
-        "extraction_class": "doc_type",
-        "extraction_text": "ÉES phase II",
-        "attributes": { "normalized": "ees_phase_2" }
+        "extraction_text": "5982",
+        "attributes": {
+          "type": "project_id",
+          "normalized": "5982"
+        }
       },
       {
         "extraction_class": "entity",
-        "extraction_text": "2259",
-        "attributes": { "type": "project_id", "normalized": "2259" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "Géosphère Consultants",
-        "attributes": { "type": "firm" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "Fiducie Route 341",
-        "attributes": { "type": "client" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "20 mars 2023",
-        "attributes": { "normalized": "2023-03-20", "role": "contract" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "12 juin 2023",
-        "attributes": { "normalized": "2023-06-12", "role": "fieldwork" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "03 janvier 2024",
-        "attributes": { "normalized": "2024-01-03", "role": "report" }
+        "extraction_text": "M. Marcello Petreccia",
+        "attributes": {
+          "type": "client"
+        }
       },
       {
         "extraction_class": "location",
-        "extraction_text": "619, Route 341, L'Épiphanie",
-        "attributes": { "type": "address" }
+        "extraction_text": "11425, boulevard Langelier, Montréal, Québec",
+        "attributes": {
+          "type": "address"
+        }
       },
       {
         "extraction_class": "location",
-        "extraction_text": "lot 2 363 352",
-        "attributes": { "type": "lot", "normalized": "2363352" }
+        "extraction_text": "lot 1 669 394",
+        "attributes": {
+          "type": "lot",
+          "normalized": "1669394"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "23 septembre 2025",
+        "attributes": {
+          "normalized": "2025-09-23",
+          "role": "report"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "25 août 2025",
+        "attributes": {
+          "normalized": "2025-08-25",
+          "role": "fieldwork"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "25-08-2025",
+        "attributes": {
+          "normalized": "2025-08-25",
+          "role": "sampling"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "26 août 2025",
+        "attributes": {
+          "normalized": "2025-08-26",
+          "role": "lab_request"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "2025-09-03",
+        "attributes": {
+          "normalized": "2025-09-03",
+          "role": "lab_certificate"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "2025-08-26",
+        "attributes": {
+          "normalized": "2025-08-26",
+          "role": "lab_receipt"
+        }
+      },
+      {
+        "extraction_class": "date",
+        "extraction_text": "2025-09-02",
+        "attributes": {
+          "normalized": "2025-09-02",
+          "role": "lab_analysis"
+        }
       },
       {
         "extraction_class": "topic",
         "extraction_text": "HAP",
-        "attributes": { "kind": "contaminant" }
-      }
-    ]
-  },
-  {
-    "text": "# Évaluation environnementale de site phase II\n\nProjet nº : 6104. Firme : Hydrogéo Plus. Client : Parc Industriel de Boucherville.\nAdresse du site : 1500, rue Nobel, Boucherville, Québec (lot 3 445 210).\nDate du contrat : 1er septembre 2021.\nDate de l'analyse : 3 octobre 2021 (échantillonnage).\nTravaux de terrain : 2 octobre 2021.\nDate du rapport : 11 novembre 2021.\nPlan d'analyses : BTEX, COV, HAM.\nRésultats : BTEX et COV sous les critères applicables ; HAM au-delà du critère B au forage F-2.",
-    "extractions": [
-      {
-        "extraction_class": "title",
-        "extraction_text": "Évaluation environnementale de site phase II"
-      },
-      {
-        "extraction_class": "doc_type",
-        "extraction_text": "Évaluation environnementale de site phase II",
-        "attributes": { "normalized": "ees_phase_2" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "6104",
-        "attributes": { "type": "project_id", "normalized": "6104" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "Hydrogéo Plus",
-        "attributes": { "type": "firm" }
-      },
-      {
-        "extraction_class": "entity",
-        "extraction_text": "Parc Industriel de Boucherville",
-        "attributes": { "type": "client" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "1er septembre 2021",
-        "attributes": { "normalized": "2021-09-01", "role": "contract" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "3 octobre 2021",
-        "attributes": { "normalized": "2021-10-03", "role": "fieldwork" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "2 octobre 2021",
-        "attributes": { "normalized": "2021-10-02", "role": "fieldwork" }
-      },
-      {
-        "extraction_class": "date",
-        "extraction_text": "11 novembre 2021",
-        "attributes": { "normalized": "2021-11-11", "role": "report" }
-      },
-      {
-        "extraction_class": "location",
-        "extraction_text": "1500, rue Nobel, Boucherville, Québec",
-        "attributes": { "type": "address" }
-      },
-      {
-        "extraction_class": "location",
-        "extraction_text": "lot 3 445 210",
-        "attributes": { "type": "lot", "normalized": "3445210" }
-      },
-      {
-        "extraction_class": "topic",
-        "extraction_text": "HAM",
-        "attributes": { "kind": "contaminant" }
+        "attributes": {
+          "kind": "contaminant"
+        }
       }
     ]
   }

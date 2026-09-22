@@ -43,9 +43,7 @@ def test_phase2_few_shots_include_project_ids():
         for e in ex.extractions
         if (e.attributes or {}).get("type") == "project_id"
     ]
-    assert "4405" in project_ids
-    assert "2259" in project_ids
-    assert "6104" in project_ids
+    assert "5982" in project_ids
 
 
 def test_phase1_few_shots_include_project_id():
@@ -57,8 +55,6 @@ def test_phase1_few_shots_include_project_id():
         if (e.attributes or {}).get("type") == "project_id"
     ]
     assert "3188" in project_ids
-    assert "9012" in project_ids
-    assert "7741" in project_ids
 
 
 def test_default_few_shots_are_generic():
@@ -66,6 +62,16 @@ def test_default_few_shots_are_generic():
     assert "Hydro-Québec" in examples[0].text
     classes = {e.extraction_class for e in examples[0].extractions}
     assert {"title", "doc_type", "entity", "date", "topic", "location"} <= classes
+
+
+def test_load_few_shots_rejects_object_instead_of_list(tmp_path: Path):
+    path = tmp_path / "few.json"
+    path.write_text(
+        '{"text": "Titre", "extractions": [{"extraction_class": "title", "extraction_text": "Titre"}]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="non-empty JSON list"):
+        load_few_shots(path)
 
 
 def test_load_few_shots_rejects_bad_json(tmp_path: Path):

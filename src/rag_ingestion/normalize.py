@@ -11,40 +11,72 @@ _ISO_DATE_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})$")
 _PROJECT_TOKEN_RE = re.compile(r"\b(\d{3,8})\b")
 _DIGITS_RE = re.compile(r"\d+")
 
-DATE_ROLES = frozenset({"contract", "fieldwork", "report", "unknown"})
-TIMELINE_ROLES = frozenset({"contract", "fieldwork", "report"})
+TIMELINE_ROLES = frozenset(
+    {
+        "contract",
+        "site_visit",
+        "fieldwork",
+        "sampling",
+        "information_request",
+        "information_response",
+        "lab_request",
+        "lab_receipt",
+        "lab_analysis",
+        "lab_certificate",
+        "report",
+    }
+)
+DATE_ROLES = TIMELINE_ROLES | {"unknown"}
 
 _ROLE_ALIASES = {
-    "analysis": "fieldwork",
-    "sampling": "fieldwork",
-    "phase1": "fieldwork",
+    "analysis": "lab_analysis",
+    "visit": "site_visit",
+    "inspection": "site_visit",
+    "phase1": "site_visit",
 }
 
-_CONTRACT_HINTS = (
-    "contrat",
-    "mandat",
-    "contract",
-)
-_FIELDWORK_HINTS = (
-    "analyse",
-    "forage",
-    "forages",
-    "campagne",
-    "visite",
-    "reconnaissance",
-    "prélèvement",
-    "prelevement",
-    "échantillonnage",
-    "echantillonnage",
-    "fieldwork",
-    "sampling",
-)
-_REPORT_HINTS = (
-    "rapport",
-    "report",
-    "remise",
-    "émission",
-    "emission",
+# Plus spécifique d'abord : « émission du certificat » ne doit pas devenir report.
+_ROLE_HINTS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("lab_certificate", ("certificat", "emission du certificat")),
+    ("lab_request", ("demande d'analyse", "demande d analyse")),
+    ("lab_receipt", ("date de reception", "reception au laboratoire")),
+    (
+        "lab_analysis",
+        ("date d'analyse", "date d analyse", "date de l'analyse", "date de l analyse"),
+    ),
+    (
+        "information_response",
+        (
+            "reponse du",
+            "reponse de",
+            "reponse d'acces",
+            "reponse d acces",
+            "recue le",
+        ),
+    ),
+    (
+        "information_request",
+        (
+            "demande d'acces",
+            "demande d acces",
+            "acces a l'information",
+            "acces a l information",
+        ),
+    ),
+    ("site_visit", ("visite", "inspection", "reconnaissance")),
+    ("sampling", ("prelevement", "echantillonnage")),
+    (
+        "fieldwork",
+        (
+            "forage",
+            "campagne",
+            "travaux de chantier",
+            "travaux de terrain",
+            "fieldwork",
+        ),
+    ),
+    ("contract", ("contrat", "mandat", "contract")),
+    ("report", ("date du rapport", "rapport d'ees", "lettre de transmission")),
 )
 
 
@@ -136,7 +168,7 @@ def iso_date(text: str | None) -> str | None:
 def infer_date_role(role: str | None, label: str) -> str:
     """Rôle de date : attribut LangExtract, sinon indices lexicaux, sinon `unknown`.
 
-    Alias acceptés : `analysis` / `sampling` / `phase1` → `fieldwork`.
+    Alias : `analysis` → `lab_analysis` ; `visit` / `inspection` / `phase1` → `site_visit`.
     """
     if isinstance(role, str):
         key = role.strip().lower()
@@ -144,10 +176,7 @@ def infer_date_role(role: str | None, label: str) -> str:
         if mapped in DATE_ROLES and mapped != "unknown":
             return mapped
     hay = fold_ascii(label)
-    if any(hint in hay for hint in _CONTRACT_HINTS):
-        return "contract"
-    if any(hint in hay for hint in _FIELDWORK_HINTS):
-        return "fieldwork"
-    if any(hint in hay for hint in _REPORT_HINTS):
-        return "report"
+    for mapped, hints in _ROLE_HINTS:
+        if any(hint in hay for hint in hints):
+            return mapped
     return "unknown"

@@ -63,9 +63,17 @@ export function fileLabel(event) {
 }
 
 const ROLE_LABELS = {
+  contract: "Mandat",
+  site_visit: "Visite du site",
+  fieldwork: "Travaux de chantier",
+  sampling: "Prélèvement",
+  information_request: "Demande d'accès à l'information",
+  information_response: "Réponse d'accès à l'information",
+  lab_request: "Demande d'analyse",
+  lab_receipt: "Réception au laboratoire",
+  lab_analysis: "Analyse laboratoire",
+  lab_certificate: "Certificat d'analyses",
   report: "Rapport",
-  fieldwork: "Terrain",
-  contract: "Contrat",
 };
 
 const DOC_TYPE_LABELS = {
@@ -81,7 +89,8 @@ const DOC_TYPE_LABELS = {
 
 export function roleLabel(role) {
   if (!role) return "";
-  return ROLE_LABELS[role] || role;
+  const key = String(role).trim().toLowerCase();
+  return ROLE_LABELS[key] || role;
 }
 
 export function docTypeLabel(docType) {

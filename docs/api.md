@@ -68,7 +68,7 @@ REPL : `rag-chat` (JSON `focus` sous la réponse). LLM : `OPENAI_*` ou `LLAMA_SE
 Trois panneaux, un état `activeId` = `site_id` catalog :
 
 1. **Carte** — `GET /sites`, polygone du lot cadastral (Cadastre QC) + pin au centroïde. Sans lot : point Nominatim. Clic → sélection du site.
-2. **Chronologie** — `GET /sites/{id}/timeline`. Clic sur un rapport → chip `@fichier` et `document_id` pour le prochain `POST /chat`.
+2. **Chronologie** — `GET /sites/{id}/timeline`. Les `role` d’event (`fieldwork`, `lab_certificate`, …) sont affichés en français dans `ui/src/api.js` (`roleLabel`). Clic sur un rapport → chip `@fichier` et `document_id` pour le prochain `POST /chat`.
 3. **Chat** — `POST /chat` avec `site_id` et éventuellement `document_id`. Si `focus.site_ids[0]` revient, la carte suit.
 
 Pas de pin par forage / puits : le catalog a un polygone (ou un point) par **site**.

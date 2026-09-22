@@ -149,8 +149,14 @@ def resolve_extract_llm(*, langextract_model: str, ollama_base_url: str) -> Extr
     )
 
 
-def langextract_extract_kwargs(extract: ExtractLLM, *, timeout_seconds: float) -> dict:
-    """Kwargs `lx.extract` (hors texte / prompt / few-shots)."""
+def langextract_extract_kwargs(
+    extract: ExtractLLM,
+    *,
+    timeout_seconds: float,
+    max_char_buffer: int = 10000,
+) -> dict:
+    """Kwargs `lx.extract` (hors texte / prompt / few-shots).
+    """
     from langextract.factory import ModelConfig
 
     if extract.provider == OLLAMA:
@@ -176,6 +182,7 @@ def langextract_extract_kwargs(extract: ExtractLLM, *, timeout_seconds: float) -
             provider_kwargs=provider_kwargs,
         ),
         "use_schema_constraints": extract.use_schema_constraints,
+        "max_char_buffer": max_char_buffer,
         "show_progress": False,
     }
     if extract.fence_output is not None:

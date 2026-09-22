@@ -170,11 +170,21 @@ def ingest_path(
 
     timer = StepTimer(logger)
     size_mo = path.stat().st_size / (1024 * 1024)
+
+    # Vrai modèle LangExtract selon le provider actif (gemini, openai, ollama…).
+    _extract_llm = resolve_extract_llm(
+        langextract_model=s.langextract_model,
+        ollama_base_url=s.ollama_base_url,
+    )
+    _effective_langextract_model = (
+        f"{_extract_llm.provider}/{_extract_llm.model}" if not skip_extract else "disabled"
+    )
+
     logger.info("Ingesting « %s » (%.2f MB)", path.name, size_mo)
     logger.info(
         "Qdrant collection « %s » · LangExtract %s · chunks %s chars / overlap %s",
         s.qdrant_collection,
-        "disabled" if skip_extract else s.langextract_model,
+        "disabled" if skip_extract else _effective_langextract_model,
         s.chunk_size_chars,
         s.chunk_overlap_chars,
     )
@@ -190,15 +200,6 @@ def ingest_path(
         )
     except Exception:
         pass  # Résolution via le Markdown uniquement (heading) arrive plus loin.
-
-    # Vrai modèle LangExtract selon le provider actif (gemini, openai, ollama…).
-    _extract_llm = resolve_extract_llm(
-        langextract_model=s.langextract_model,
-        ollama_base_url=s.ollama_base_url,
-    )
-    _effective_langextract_model = (
-        f"{_extract_llm.provider}/{_extract_llm.model}" if not skip_extract else "disabled"
-    )
 
     warnings: list[str] = []
 
@@ -325,7 +326,7 @@ def ingest_path(
         else:
             with timer.step(
                 "langextract",
-                f"Step 3/7 — Structured extraction ({s.langextract_model})…",
+                f"Step 3/7 — Structured extraction ({_effective_langextract_model})…",
             ):
                 schema = resolve_extract_schema(
                     path,

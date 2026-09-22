@@ -89,6 +89,7 @@ Paramètres qui changent réellement le comportement d’ingest :
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | URL LangExtract |
 | `LANGEXTRACT_MODEL` | `nemotron-3-nano:4b` | `model_id` passé à `langextract.extract` |
 | `LANGEXTRACT_TIMEOUT_SECONDS` | `300` | Timeout Ollama |
+| `LANGEXTRACT_MAX_CHAR_BUFFER` | `10000` | Taille d’une fenêtre LangExtract (caractères). Le Markdown entier est découpé en fenêtres d’environ cette taille ; 10000 ≈ 7 appels Gemini pour un ÉES de ~66k chars, au lieu de 60+ avec le défaut LangExtract (1000). Trop grand (tout le doc) augmente le risque d’halluciner des `extraction_text` non verbatim. |
 | `LANGEXTRACT_PROFILES_FILE` | `config/langextract/profiles.json` | Routage des schémas (phase I / II / default) |
 | `LANGEXTRACT_PROMPT_FILE` | `config/langextract/prompt.base.txt` | Repli si `profiles.json` est absent |
 | `LANGEXTRACT_FEW_SHOTS_FILE` | `config/langextract/profiles/default/few_shots.json` | Repli si `profiles.json` est absent |
@@ -267,11 +268,13 @@ langextract.extract(
   text_or_documents=markdown,
   prompt_description=prompt,
   examples=few-shots,
-  model_id=LANGEXTRACT_MODEL,
-  model_url=OLLAMA_BASE_URL,
-  language_model_params={ timeout: LANGEXTRACT_TIMEOUT_SECONDS },
+  config=ModelConfig(provider=gemini|openai|ollama, model_id=…),
+  max_char_buffer=LANGEXTRACT_MAX_CHAR_BUFFER,  # défaut 10000
+  use_schema_constraints=True  # Gemini uniquement
 )
 ```
+
+Le modèle affiché dans les logs d’ingest est le backend **résolu** (`gemini/gemini-3.5-flash-lite`, pas `LANGEXTRACT_MODEL` / gemma4 si le provider est Gemini).
 
 LangExtract demande au modèle de recopier des extraits **présents dans le source** et, si possible, renvoie un `char_interval` (`start_pos`, `end_pos`) dans le Markdown. Une extraction **ancrée** (`grounded`) a `start` et `end` non nuls. Une extraction non ancrée a `start = end = None`.
 

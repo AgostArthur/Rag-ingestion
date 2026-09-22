@@ -202,10 +202,12 @@ def extract_structured(
         ollama_base_url=s.ollama_base_url,
     )
     logger.info(
-        "  Calling LangExtract provider=%s model=%s (%s characters, timeout %ss)…",
+        "  Calling LangExtract provider=%s model=%s (%s characters, "
+        "max_char_buffer=%s, timeout %ss)…",
         extract_llm.provider,
         extract_llm.model,
         len(markdown),
+        s.langextract_max_char_buffer,
         int(s.langextract_timeout_seconds),
     )
     logger.info(
@@ -221,7 +223,9 @@ def extract_structured(
         prompt_description=prompt,
         examples=examples,
         **langextract_extract_kwargs(
-            extract_llm, timeout_seconds=s.langextract_timeout_seconds
+            extract_llm,
+            timeout_seconds=s.langextract_timeout_seconds,
+            max_char_buffer=s.langextract_max_char_buffer,
         ),
     )
 

@@ -136,14 +136,14 @@ def test_composed_prompt_includes_base_and_addendum():
     phase1 = _resolve("phase_I.pdf")
     assert "doc_type.normalized = ees_phase_1" in phase1.prompt
     assert "campagne de forages" in phase1.prompt
-    assert "contract|fieldwork|report" in phase2.prompt
+    assert "lab_certificate" in phase2.prompt
+    assert "information_request" in phase1.prompt
 
 
 def test_profile_few_shots_are_phase_specific():
     phase2 = _resolve("phase_II.pdf")
     texts = [ex.text for ex in phase2.examples]
-    assert any("4405" in text for text in texts)
-    assert any("2259" in text for text in texts)
+    assert any("5982" in text for text in texts)
     phase2_types = [
         (e.attributes or {}).get("normalized")
         for ex in phase2.examples
@@ -157,7 +157,7 @@ def test_profile_few_shots_are_phase_specific():
         for e in ex.extractions
         if e.extraction_class == "date"
     }
-    assert {"contract", "fieldwork", "report"} <= phase2_roles
+    assert {"fieldwork", "lab_certificate", "report"} <= phase2_roles
     assert "analysis" not in phase2_roles
     assert "other" not in phase2_roles
     assert any(
@@ -190,7 +190,7 @@ def test_profile_few_shots_are_phase_specific():
         for e in ex.extractions
         if e.extraction_class == "date"
     }
-    assert {"contract", "fieldwork", "report"} <= phase1_roles
+    assert {"contract", "site_visit", "report"} <= phase1_roles
     assert "analysis" not in phase1_roles
     assert "other" not in phase1_roles
     assert any(

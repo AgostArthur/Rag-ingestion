@@ -267,3 +267,23 @@ def test_ingest_log_file_env_relative_under_data_dir(tmp_path: Path, monkeypatch
 
     s = cfg.load_settings()
     assert s.resolved_ingest_log_path() == data_dir / "log_ingest.jsonl"
+
+
+def test_langextract_max_char_buffer_default(tmp_path: Path, monkeypatch):
+    from rag_ingestion import config as cfg
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.delenv("LANGEXTRACT_MAX_CHAR_BUFFER", raising=False)
+    monkeypatch.setattr(cfg, "_load_dotenv_file", lambda: None)
+    s = cfg.load_settings()
+    assert s.langextract_max_char_buffer == 10000
+
+
+def test_langextract_max_char_buffer_from_env(tmp_path: Path, monkeypatch):
+    from rag_ingestion import config as cfg
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LANGEXTRACT_MAX_CHAR_BUFFER", "8000")
+    monkeypatch.setattr(cfg, "_load_dotenv_file", lambda: None)
+    s = cfg.load_settings()
+    assert s.langextract_max_char_buffer == 8000

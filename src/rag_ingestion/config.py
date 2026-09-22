@@ -22,6 +22,7 @@ DEFAULT_EMBED_DIM = 1024
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_LANGEXTRACT_MODEL = "nemotron-3-nano:4b"
 DEFAULT_LANGEXTRACT_TIMEOUT_SECONDS = 300.0
+DEFAULT_LANGEXTRACT_MAX_CHAR_BUFFER = 10000
 DEFAULT_LANGEXTRACT_PROMPT_FILE = "config/langextract/prompt.base.txt"
 DEFAULT_LANGEXTRACT_FEW_SHOTS_FILE = "config/langextract/profiles/default/few_shots.json"
 DEFAULT_LANGEXTRACT_PROFILES_FILE = "config/langextract/profiles.json"
@@ -147,6 +148,7 @@ class Settings:
     langextract_profiles_file: Path | None = None
     geocode_enabled: bool = False
     geocode_user_agent: str = "rag-ingestion/0.1 (enviro-rag)"
+    langextract_max_char_buffer: int = DEFAULT_LANGEXTRACT_MAX_CHAR_BUFFER
 
     @property
     def parsed_dir(self) -> Path:
@@ -238,6 +240,11 @@ def load_settings() -> Settings:
         or DEFAULT_LANGEXTRACT_MODEL,
         langextract_timeout_seconds=_float_env(
             "LANGEXTRACT_TIMEOUT_SECONDS", DEFAULT_LANGEXTRACT_TIMEOUT_SECONDS
+        ),
+        langextract_max_char_buffer=_int_env(
+            "LANGEXTRACT_MAX_CHAR_BUFFER",
+            DEFAULT_LANGEXTRACT_MAX_CHAR_BUFFER,
+            minimum=500,
         ),
         langextract_prompt_file=_resolve_path(
             os.getenv("LANGEXTRACT_PROMPT_FILE", ""),

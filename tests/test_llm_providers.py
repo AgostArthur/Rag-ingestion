@@ -83,6 +83,21 @@ def test_resolve_extract_gemini_uses_gemini_model(monkeypatch: pytest.MonkeyPatc
     kwargs = langextract_extract_kwargs(extract, timeout_seconds=30)
     assert kwargs["config"].provider == "gemini"
     assert kwargs["use_schema_constraints"] is True
+    assert kwargs["max_char_buffer"] == 10000
+
+
+def test_langextract_extract_kwargs_passes_max_char_buffer(monkeypatch: pytest.MonkeyPatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "gk")
+    extract = resolve_extract_llm(
+        langextract_model="ignored",
+        ollama_base_url="http://localhost:11434",
+    )
+    kwargs = langextract_extract_kwargs(
+        extract, timeout_seconds=30, max_char_buffer=12000
+    )
+    assert kwargs["max_char_buffer"] == 12000
 
 
 def test_resolve_extract_openai(monkeypatch: pytest.MonkeyPatch):

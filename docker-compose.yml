@@ -42,6 +42,8 @@ x-app: &app
     - ./data:/data
     - ./incoming:/incoming
     - ./config:/app/config:ro
+    # Code Python du dépôt (sans rebuild FastEmbed). TIMELINE_ROLES / API suivent src/.
+    - ./src:/app/src:ro
   depends_on:
     - qdrant
   restart: unless-stopped
