@@ -137,3 +137,38 @@ export function groupTimeline(documents, events) {
     events: byDoc.get(document.document_id) || [],
   }));
 }
+
+/** Une entrée par jour : les events du site (une adresse) regroupés par `iso_date`. */
+export function groupTimelineByDate(documents, events) {
+  const eventRows = Array.isArray(events) ? events : [];
+  const docRows = Array.isArray(documents) ? documents : [];
+  const docsById = new Map(docRows.map((doc) => [doc.document_id, doc]));
+  const merged = [];
+  const seen = new Set();
+  for (const event of eventRows) {
+    if (!event || !event.iso_date) continue;
+    const key = `${event.iso_date}|${event.role || ""}|${event.document_id || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const doc = (event.document_id && docsById.get(event.document_id)) || {};
+    merged.push({ ...doc, ...event });
+  }
+  const withEvents = new Set(merged.map((row) => row.document_id).filter(Boolean));
+  for (const doc of docRows) {
+    if (!doc || withEvents.has(doc.document_id) || !doc.report_date) continue;
+    merged.push({ ...doc, iso_date: doc.report_date, role: "report" });
+  }
+  merged.sort((a, b) => String(b.iso_date).localeCompare(String(a.iso_date)));
+  const groups = [];
+  const index = new Map();
+  for (const event of merged) {
+    let group = index.get(event.iso_date);
+    if (!group) {
+      group = { iso_date: event.iso_date, events: [] };
+      index.set(event.iso_date, group);
+      groups.push(group);
+    }
+    group.events.push(event);
+  }
+  return groups;
+}

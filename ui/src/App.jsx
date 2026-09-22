@@ -9,11 +9,10 @@ import {
   fetchSites,
   fetchTimeline,
   fileLabel,
-  groupTimeline,
+  groupTimelineByDate,
   parseQualityLabel,
   postChat,
   roleLabel,
-  siteLine,
 } from "./api";
 import ChatTiming from "./ChatTiming";
 
@@ -172,6 +171,7 @@ function App() {
       document_id: event.document_id,
       name,
       project_id: event.project_id,
+      iso_date: event.iso_date || null,
     });
     setDraft((current) => {
       const mention = `@${name} `;
@@ -220,7 +220,7 @@ function App() {
   }, [draft, busy, threadId, activeId, focusedDoc]);
 
   const timelineItems = useMemo(
-    () => groupTimeline(documents, events),
+    () => groupTimelineByDate(documents, events),
     [documents, events]
   );
   const nDocs =
@@ -452,6 +452,18 @@ function App() {
                     lineHeight: 1.45,
                   }}
                 >
+                  <div
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "#94a3b8",
+                      textTransform: "uppercase",
+                      letterSpacing: 0.6,
+                      marginBottom: 2,
+                    }}
+                  >
+                    Adresse
+                  </div>
                   <div style={{ fontWeight: 600, color: "#334155" }}>
                     {activeSite.address || activeSite.site_id}
                   </div>
@@ -477,31 +489,32 @@ function App() {
                     : "Sélectionnez un site sur la carte."}
                 </div>
               )}
-              {timelineItems.map((item, i) => {
-                const r = item.document;
+              {timelineItems.map((group, i) => {
+                const dated = group.events || [];
+                const primary =
+                  dated.find((ev) => ev.role === "report") || dated[0] || {};
                 const selected =
-                  focusedDoc && focusedDoc.document_id === r.document_id;
-                const typeLabel = docTypeLabel(r.doc_type);
-                const heading = eventHeading(r);
-                const place = siteLine(r);
-                const fileName = fileLabel(r);
-                const quality = parseQualityLabel(r.parse_quality);
-                const contaminants = Array.isArray(r.contaminants)
-                  ? r.contaminants.filter(Boolean)
+                  focusedDoc &&
+                  focusedDoc.iso_date === group.iso_date &&
+                  dated.some((ev) => ev.document_id === focusedDoc.document_id);
+                const typeLabel = docTypeLabel(primary.doc_type);
+                const heading = eventHeading(primary);
+                const fileName = fileLabel(primary);
+                const quality = parseQualityLabel(primary.parse_quality);
+                const showReportMeta = dated.some((ev) => ev.role === "report");
+                const contaminants = Array.isArray(primary.contaminants)
+                  ? primary.contaminants.filter(Boolean)
                   : [];
-                const dated = (item.events || []).filter(
-                  (ev, idx, all) =>
-                    all.findIndex(
-                      (other) =>
-                        other.iso_date === ev.iso_date && other.role === ev.role
-                    ) === idx
-                );
-                const mainDate = r.report_date || (dated[0] && dated[0].iso_date);
+                const severalDocs =
+                  new Set(dated.map((ev) => ev.document_id).filter(Boolean))
+                    .size > 1;
                 return (
                   <button
-                    key={r.document_id || `${mainDate}-${i}`}
+                    key={group.iso_date || `date-${i}`}
                     type="button"
-                    onClick={() => selectReport(r)}
+                    onClick={() =>
+                      selectReport({ ...primary, iso_date: group.iso_date })
+                    }
                     style={{
                       display: "block",
                       width: "100%",
@@ -509,19 +522,19 @@ function App() {
                       background: selected ? "#E8F7DD" : "transparent",
                       border: "none",
                       paddingLeft: 20,
-                      paddingBottom: 20,
+                      paddingBottom: 16,
                       borderLeft: selected
                         ? "2px solid #50C32A"
                         : "2px solid #e2e8f0",
                       position: "relative",
-                      cursor: r.document_id ? "pointer" : "default",
+                      cursor: primary.document_id ? "pointer" : "default",
                     }}
                   >
                     <div
                       style={{
                         position: "absolute",
                         left: -9,
-                        top: 0,
+                        top: 2,
                         width: 16,
                         height: 16,
                         borderRadius: "50%",
@@ -536,18 +549,19 @@ function App() {
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
-                        marginBottom: 4,
+                        marginBottom: 6,
                         gap: 8,
                       }}
                     >
                       <span
                         style={{
-                          fontSize: 10,
+                          fontSize: 12,
+                          fontWeight: 700,
                           fontFamily: "monospace",
-                          color: "#94a3b8",
+                          color: "#1e293b",
                         }}
                       >
-                        {mainDate || "sans date"}
+                        {group.iso_date || "sans date"}
                       </span>
                       <span
                         style={{
@@ -557,7 +571,7 @@ function App() {
                           justifyContent: "flex-end",
                         }}
                       >
-                        {typeLabel ? (
+                        {showReportMeta && typeLabel ? (
                           <span
                             style={{
                               fontSize: 9,
@@ -571,7 +585,7 @@ function App() {
                             {typeLabel}
                           </span>
                         ) : null}
-                        {quality ? (
+                        {showReportMeta && quality ? (
                           <span
                             style={{
                               fontSize: 9,
@@ -590,40 +604,54 @@ function App() {
                     <div
                       style={{
                         fontSize: 12,
-                        fontWeight: 700,
-                        color: "#1e293b",
+                        color: "#334155",
+                        lineHeight: 1.55,
                       }}
                     >
-                      {heading}
-                      {r.project_id ? ` · n° ${r.project_id}` : ""}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "#64748b",
-                        marginTop: 4,
-                        lineHeight: 1.5,
-                      }}
-                    >
-                      {r.firm ? <div>{r.firm}</div> : null}
-                      {r.client ? <div>Client : {r.client}</div> : null}
-                      {place ? <div>{place}</div> : null}
-                      {contaminants.length > 0 ? (
-                        <div>Contaminants : {contaminants.join(", ")}</div>
-                      ) : null}
-                      {fileName && fileName !== heading ? (
-                        <div>{fileName}</div>
-                      ) : null}
-                      {dated.length > 0 ? (
-                        <div style={{ marginTop: 6 }}>
-                          {dated.map((ev) => (
-                            <div key={`${ev.iso_date}-${ev.role}`}>
-                              {ev.iso_date} · {roleLabel(ev.role)}
-                            </div>
-                          ))}
+                      {dated.map((ev) => (
+                        <div
+                          key={`${ev.iso_date}-${ev.role}-${ev.document_id || ""}`}
+                        >
+                          {roleLabel(ev.role)}
+                          {severalDocs && ev.project_id
+                            ? ` · n° ${ev.project_id}`
+                            : ""}
                         </div>
-                      ) : null}
+                      ))}
                     </div>
+                    {showReportMeta ? (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "#64748b",
+                          marginTop: 8,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: "#1e293b",
+                          }}
+                        >
+                          {heading}
+                          {primary.project_id
+                            ? ` · n° ${primary.project_id}`
+                            : ""}
+                        </div>
+                        {primary.firm ? <div>{primary.firm}</div> : null}
+                        {primary.client ? (
+                          <div>Client : {primary.client}</div>
+                        ) : null}
+                        {contaminants.length > 0 ? (
+                          <div>Contaminants : {contaminants.join(", ")}</div>
+                        ) : null}
+                        {fileName && fileName !== heading ? (
+                          <div>{fileName}</div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </button>
                 );
               })}
