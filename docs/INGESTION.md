@@ -15,9 +15,9 @@ D’où deux produits dans le même repo, volontairement séparés :
 
 L’ingest est donc la **seule** écriture du corpus. Le chatbot **lit** Qdrant ; il ne doit pas inventer ni persister des entités (n° de projet, adresse, dates). Les réponses utilisateur sont en français ; le prompt LangExtract est bilingue EN/FR parce que les rapports québécois mélangent souvent les deux.
 
-La vision produit (carte + timeline à côté du chat, **§ 16**) repose sur le même constat : 2259 et 4405 doivent **fusionner** sur une carte (un lieu) et **rester distincts** dans un historique (deux travaux, deux firmes, deux dates de remise). Ça n’est possible que si l’identité (projet, lot, dates typées) est écrite **à l’ingest**, pas générée par le LLM en fin de tour.
+La carte et la chronologie reposent sur le même constat : 2259 et 4405 doivent **fusionner** sur une carte (un lieu) et **rester distincts** dans un historique (deux travaux, deux firmes, deux dates de remise). Ça n’est possible que si l’identité (projet, lot, dates typées) est écrite **à l’ingest**, pas générée par le LLM en fin de tour. Le catalog SQLite et l’UI qui le lisent sont en place : voir [`OVERVIEW.md`](OVERVIEW.md) et [`API.md`](API.md).
 
-Ce document décrit **exactement** le pipeline d’ingestion tel qu’il est implémenté : entrée, étapes, structures de données, fichiers produits, index Qdrant, cas d’échec, et ré-ingestion. Il ne décrit pas le graphe LangGraph ni les prompts chat, sauf là où l’ingest alimente la recherche. La **§ 16** est le **plan** convenu (SQLite `sites` / `documents` / `events`, géocodage, enveloppe `focus`) : **rien de cette section n’est dans le code** à la date de rédaction.
+Ce document décrit le pipeline d’ingestion : entrée, étapes, structures de données, fichiers produits, index Qdrant, cas d’échec, et ré-ingestion. Il ne décrit pas le graphe LangGraph ni l’écran, sauf là où l’ingest alimente la recherche.
 
 Point d’entrée : `rag-ingest ingest <chemin.pdf>` → `rag_ingestion.cli.cmd_ingest` → `rag_ingestion.pipeline.ingest_path`.
 
@@ -65,7 +65,7 @@ Avant `rag-ingest ingest` :
 
 | Service | Rôle | Comment |
 |---|---|---|
-| Qdrant | Stockage vecteurs + payload | `docker compose up -d` — image `qdrant/qdrant:v1.19.0`, HTTP `6333` |
+| Qdrant (`vector-store`) | Stockage vecteurs + payload | `docker compose up -d vector-store` — image `qdrant/qdrant:v1.19.0`, HTTP `6333` |
 | Ollama | LLM pour LangExtract | `OLLAMA_BASE_URL` (défaut `http://localhost:11434`) et modèle `LANGEXTRACT_MODEL` |
 | FastEmbed | Embeddings locaux | Docker : poids dans l’image (`PREFETCH_EMBED=1`). Hors Docker : téléchargement au premier appel |
 
@@ -363,7 +363,7 @@ Fichier : `src/rag_ingestion/embed.py`.
 
 On embed **uniquement** `[payload.chunk.text for payload in payloads]`. Le JSON LangExtract, le `doc_type`, les `entities` **n’entrent pas** dans le vecteur. Ils voyagent à côté, dans le payload Qdrant.
 
-Le chatbot appelle `rag_ingestion.retrieve.search`. L’UI lit le catalog via l’API ([api.md](api.md)).
+Le chatbot appelle `rag_ingestion.retrieve.search`. L’UI lit le catalog via l’API ([API.md](API.md)).
 
 ## Déclencheurs
 
@@ -371,7 +371,7 @@ Le catalog n’est **pas** la source des fichiers. Un PDF n’entre dans le corp
 
 | Déclencheur | Commande |
 |---|---|
-| Drop folder (Compose `worker`) | Fichier dans `incoming/` → `rag-ingest watch` |
+| Drop folder (Compose `ingest-worker`) | Fichier dans `incoming/` → `rag-ingest watch` |
 | Manuel | `rag-ingest ingest fichier.pdf` ou un dossier |
 | Un scan (cron) | `rag-ingest watch --once` |
 
@@ -553,7 +553,7 @@ rag-ingest query "contamination" --filter site_id=lot:2363352
 
 `QDRANT_URL`, `QDRANT_COLLECTION`, `EMBED_MODEL`, `OLLAMA_BASE_URL`, `LANGEXTRACT_*`, `OCR_*`, `CHUNK_*`, `DATA_DIR`, `INCOMING_DIR` / `ARCHIVE_DIR` / `FAILED_DIR`, `INGEST_SKIP_EXISTING`, `INGEST_SKIP_EXTRACT`, `GEOCODE_ENABLED`.
 
-Compose force `QDRANT_URL=http://qdrant:6333` et `DATA_DIR=/data` dans les conteneurs.
+Compose force `QDRANT_URL=http://vector-store:6333` et `DATA_DIR=/data` dans les conteneurs.
 
 | Colonne | Rôle |
 |---|---|
@@ -573,7 +573,7 @@ Règle de fusion : après normalisation du lot (ou de l’adresse), on **réutil
 | Colonne | Rôle |
 |---|---|
 | `document_id` | SHA-256 actuel du PDF (même id que Qdrant). PK. |
-| `project_id` | N° dossier (`4405`). Un document = un projet principal ; si plusieurs n° extraits, documenter la règle (premier / liste séparée) au moment de l’implémentation. |
+| `project_id` | N° dossier principal (premier de `project_ids`, ex. `4405`). |
 | `title` | Titre LangExtract (`title`), aujourd’hui **perdu** pour Qdrant. |
 | `doc_type` | Même normalisation qu’aujourd’hui (`ees_phase_2`, …). |
 | `firm` | Organisme rédacteur (`entity` type `firm`). |

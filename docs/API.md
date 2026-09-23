@@ -1,6 +1,6 @@
 # API et interface
 
-Le service Compose `chat` expose FastAPI (`src/chatbot/api.py`, `rag-chat serve`). L’UI Vite (`ui/`) parle à cette API : en Docker via nginx (`ui/nginx.conf`, port **3000**), en local via le proxy Vite vers `127.0.0.1:8000`.
+Le service Compose `chat-api` expose FastAPI (`src/chatbot/api.py`, `rag-chat serve`). L’UI Vite (`ui/`) parle à cette API : en Docker via nginx (`web`, `ui/nginx.conf`, port **3000**), en local via le proxy Vite vers `127.0.0.1:8000`.
 
 Le modèle **n’a pas** les chunks dans le prompt. Il appelle l’outil `search_knowledge` (`src/chatbot/tools.py` → `retrieve.search`). Si `rag_include_catalog` est vrai, l’outil préfixe aussi la fiche catalog (client, firme, adresse).
 
@@ -25,12 +25,14 @@ Pas d’écriture catalog depuis ces routes. CORS : origines `localhost:3000` (d
   "message": "contamination 4405",
   "thread_id": null,
   "site_id": "lot:2363352",
-  "document_id": null
+  "document_id": null,
+  "context": ["@E25 - ÉES phase II.pdf", "2025-08-08 Analyse laboratoire"]
 }
 ```
 
 - `thread_id` omis → UUID côté serveur (checkpoint SQLite `data/chat_checkpoints.sqlite`).
 - `site_id` / `document_id` : focus UI. Ils **filtrent** `search_knowledge` (le document prime sur le site) même si le LLM omet l’argument.
+- `context` : libellés de la barre de contexte (fichier `@…`, puis la journée). Ils sont préfixés au message envoyé au modèle (`Contexte sélectionné dans l'interface:`). Le texte affiché dans le fil reste la question seule.
 - **Résolution automatique du lot** : si la question contient un n° de lot cadastral (ex. « Lot 1668054 » ou « 1 668 054 »), `search_knowledge` le normalise et interroge SQLite (`get_site_by_lot`) avant d’appeler Qdrant. Si le lot est connu, `site_id=lot:1668054` est injecté comme filtre — sans dépendre du LLM. Le prompt (`config/chatbot/prompt.txt`) enseigne aussi la règle `lot:{chiffres}` pour que le modèle la construise lui-même.
 
 Réponse :
@@ -66,11 +68,11 @@ REPL : `rag-chat` (JSON `focus` sous la réponse). LLM : `OPENAI_*` ou `LLAMA_SE
 
 ## Interface (`ui/`)
 
-Trois panneaux, un état `activeId` = `site_id` catalog :
+Écran coupé **65 % carte / 35 % chat**. Aucun `site_id` n’est choisi au chargement : la carte ouvre le sud du Québec autour de Montréal (centre ~45.55°N, 73.4°O, zoom 8). `activeId` reste vide jusqu’à un clic d’épingle, ou jusqu’à ce que `focus.site_ids[0]` revienne d’un tour de chat.
 
-1. **Carte** — `GET /sites`, polygone du lot cadastral (Cadastre QC) + pin au centroïde. Sans lot : point Nominatim. Clic → sélection du site.
-2. **Chronologie** — une **section** = l’adresse du site. Une **sous-section** = un jour (`iso_date`), **du plus récent au plus ancien**, avec les événements de ce jour (rôles en français via `roleLabel`). Clic sur une date → chip `@fichier` et `document_id` pour le prochain `POST /chat`.
-3. **Chat** — `POST /chat` avec `site_id` et éventuellement `document_id`. Si `focus.site_ids[0]` revient, la carte suit.
+1. **Carte** — `GET /sites`, polygone du lot cadastral (Cadastre QC) + pin au centroïde. Sans lot : point Nominatim. Clic → sélection du site, zoom sur le lot, et chips `@fichier` dans la barre de contexte (le champ de saisie n’est pas modifié).
+2. **Fiche + chronologie** — carte flottante en haut à droite de la carte. Le lot, l’adresse, la phase (I/II), le client, les fichiers et les contaminants restent affichés. **Chronologie** déplie les jours (`iso_date`, du plus récent au plus ancien, rôles en français). Clic sur une date → second chip (`2025-08-08 Analyse laboratoire`). La phase vient de `doc_type`, sinon du nom de fichier puis du titre (mêmes motifs que `profiles.json`).
+3. **Chat** — `POST /chat` avec `site_id` (épingle), `document_id` (un seul fichier chargé, ou le PDF de la journée si ce fichier est encore dans la barre) et `context` (libellés des chips, injectés dans le prompt). Chaque chip se retire par sa croix. La réponse rend le Markdown (gras, listes, tableaux) et le LaTeX (`$...$`, `$$...$$`). Les `citations` sont groupées : un nom de fichier, puis les pages (`p.4`, `p.12`).
 
 Pas de pin par forage / puits : le catalog a un polygone (ou un point) par **site**.
 
