@@ -1,17 +1,24 @@
-# Production: UI + chat API + inbox worker + Qdrant.
-# LLM stays out of this file: set LLM_PROVIDER in `.env` (local / ollama / openai / gemini).
+# Network `enviro-rag`.
+#   web            — UI (nginx) on :3000
+#   chat-api       — chat + catalog HTTP API on :8000
+#   ingest-worker  — watches ./incoming and ingests PDFs
+#   vector-store   — Qdrant chunk index on :6333
+#   extract-llm    — optional Ollama (profile `extract`) on :11434
+#
+# LLM for chat stays outside this file unless you enable `extract`:
+# set LLM_PROVIDER in `.env` (local / ollama / openai / gemini).
 #
 #   cp .env.example .env
 #   docker compose up -d --build
 #   # UI: http://localhost:3000  — drop PDFs into ./incoming
 #   # First build downloads EMBED_MODEL (FastEmbed). PREFETCH_EMBED=0 to skip.
 #
-# Optional LangExtract via Ollama in Compose:
+# Optional LangExtract via the in-network LLM:
 #   docker compose --profile extract up -d
-#   # and set OLLAMA_BASE_URL=http://ollama:11434 in .env
+#   # and set OLLAMA_BASE_URL=http://extract-llm:11434 in .env
 
 x-app-env: &app-env
-  QDRANT_URL: http://qdrant:6333
+  QDRANT_URL: http://vector-store:6333
   DATA_DIR: /data
   INCOMING_DIR: /incoming
   ARCHIVE_DIR: /data/archive
@@ -45,11 +52,12 @@ x-app: &app
     # Code Python du dépôt (sans rebuild FastEmbed). TIMELINE_ROLES / API suivent src/.
     - ./src:/app/src:ro
   depends_on:
-    - qdrant
+    - vector-store
   restart: unless-stopped
 
 services:
-  qdrant:
+  vector-store:
+    container_name: enviro-rag-vector-store
     image: qdrant/qdrant:v1.19.0
     volumes:
       - qdrant_storage:/qdrant/storage
@@ -57,8 +65,9 @@ services:
       - "6333:6333"
     restart: unless-stopped
 
-  chat:
+  chat-api:
     <<: *app
+    container_name: enviro-rag-chat-api
     ports:
       - "${CHAT_API_PORT:-8000}:8000"
     command: ["rag-chat", "serve", "--host", "0.0.0.0", "--port", "8000"]
@@ -69,29 +78,36 @@ services:
       retries: 12
       start_period: 15s
 
-  worker:
+  ingest-worker:
     <<: *app
+    container_name: enviro-rag-ingest-worker
     command: ["rag-ingest", "watch"]
 
-  ui:
+  web:
+    container_name: enviro-rag-web
     build:
       context: ./ui
       dockerfile: Dockerfile
     ports:
       - "${UI_PORT:-3000}:80"
     depends_on:
-      chat:
+      chat-api:
         condition: service_healthy
     restart: unless-stopped
 
-  ollama:
+  extract-llm:
     profiles: ["extract"]
+    container_name: enviro-rag-extract-llm
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/root/.ollama
     ports:
       - "11434:11434"
     restart: unless-stopped
+
+networks:
+  default:
+    name: enviro-rag
 
 volumes:
   qdrant_storage:

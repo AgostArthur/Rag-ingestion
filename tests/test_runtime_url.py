@@ -22,9 +22,13 @@ def test_rewrite_loopback_docker_maps_localhost():
 
 
 def test_rewrite_loopback_leaves_other_hosts():
-    assert rewrite_loopback_url("http://qdrant:6333", in_docker=True) == "http://qdrant:6333"
     assert (
-        rewrite_loopback_url("http://ollama:11434", in_docker=True) == "http://ollama:11434"
+        rewrite_loopback_url("http://vector-store:6333", in_docker=True)
+        == "http://vector-store:6333"
+    )
+    assert (
+        rewrite_loopback_url("http://extract-llm:11434", in_docker=True)
+        == "http://extract-llm:11434"
     )
     assert (
         rewrite_loopback_url("https://api.openai.com/v1", in_docker=True)
