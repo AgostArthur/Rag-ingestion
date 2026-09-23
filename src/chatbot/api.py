@@ -20,6 +20,7 @@ class ChatRequest(BaseModel):
     thread_id: str | None = None
     site_id: str | None = None
     document_id: str | None = None
+    context: list[str] = Field(default_factory=list)
 
 
 class Focus(BaseModel):
@@ -40,6 +41,19 @@ class ChatResponse(BaseModel):
     documents: list[dict[str, Any]]
     citations: list[dict[str, Any]]
     timing: TurnTiming
+
+
+def message_with_context(message: str, context: list[str] | None) -> str:
+    """Préfixe la question avec les chips de la barre de contexte.
+
+    Le texte saisi par l'utilisateur reste inchangé côté UI. Seul le message
+    envoyé au graphe porte le fichier et la section sélectionnés.
+    """
+    lines = [item.strip() for item in (context or []) if isinstance(item, str) and item.strip()]
+    if not lines:
+        return message
+    block = "\n".join(f"- {line}" for line in lines)
+    return f"Contexte sélectionné dans l'interface:\n{block}\n\nQuestion: {message}"
 
 
 def create_app(settings: ChatSettings | None = None):
@@ -141,7 +155,7 @@ def create_app(settings: ChatSettings | None = None):
         try:
             result, timing = invoke_turn(
                 graph,
-                payload.message,
+                message_with_context(payload.message, payload.context),
                 thread_id=thread_id,
                 recursion_limit=recursion_limit_for(s.max_tool_calls),
             )

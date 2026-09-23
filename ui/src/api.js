@@ -25,7 +25,7 @@ export async function fetchTimeline(siteId) {
   };
 }
 
-export async function postChat({ message, threadId, siteId, documentId }) {
+export async function postChat({ message, threadId, siteId, documentId, context }) {
   const res = await fetch("/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,6 +34,7 @@ export async function postChat({ message, threadId, siteId, documentId }) {
       thread_id: threadId || null,
       site_id: siteId || null,
       document_id: documentId || null,
+      context: Array.isArray(context) ? context : [],
     }),
   });
   if (!res.ok) {
@@ -98,6 +99,50 @@ export function docTypeLabel(docType) {
   return DOC_TYPE_LABELS[docType] || docType;
 }
 
+const PHASE_RULES = [
+  {
+    id: "ees_phase_2",
+    patterns: [
+      /phase[\s_-]*(2|ii)(?!i)/i,
+      /ees[\s_-]*(2|ii)(?!i)/i,
+      /esa[\s_-]*(2|ii)(?!i)/i,
+    ],
+  },
+  {
+    id: "ees_phase_1",
+    patterns: [
+      /phase[\s_-]*(1|i)(?!i)/i,
+      /ees[\s_-]*(1|i)(?!i)/i,
+      /esa[\s_-]*(1|i)(?!i)/i,
+    ],
+  },
+];
+
+function foldAscii(text) {
+  return String(text || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+/** Phase I/II : `doc_type` catalog, sinon les mêmes motifs que le profil LangExtract (nom, puis titre). */
+export function phaseIdForDocument(doc) {
+  if (!doc) return "";
+  const stored = String(doc.doc_type || "")
+    .trim()
+    .toLowerCase();
+  if (stored === "ees_phase_1" || stored === "ees_phase_2") return stored;
+  const name = fileLabel(doc);
+  const title = doc.title || "";
+  for (const source of [name, title]) {
+    const folded = foldAscii(source);
+    for (const rule of PHASE_RULES) {
+      if (rule.patterns.some((pattern) => pattern.test(folded))) return rule.id;
+    }
+  }
+  return "";
+}
+
 export function eventHeading(event) {
   const type = docTypeLabel(event && event.doc_type);
   const title = (event && event.title) || "";
@@ -117,6 +162,144 @@ export function parseQualityLabel(quality) {
   if (quality === "ocr_heavy") return "OCR lourd";
   if (quality === "ocr_partial") return "OCR partiel";
   return "";
+}
+
+const DATE_ONLY_LABEL =
+  /^\d{4}-\d{2}-\d{2}$|^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$|^\d{1,2}\s+\p{L}+\s+\d{4}$/u;
+
+/** Texte d'événement utile en chronologie : pas la date, ni le rôle, ni le titre du PDF. */
+export function eventNote(event) {
+  if (!event) return "";
+  const label = String(event.label || "").trim();
+  if (!label) return "";
+  const folded = label.toLowerCase();
+  const role = roleLabel(event.role).trim().toLowerCase();
+  if (folded === role || folded === "rapport") return "";
+  if (folded === String(event.iso_date || "").toLowerCase()) return "";
+  if (DATE_ONLY_LABEL.test(label)) return "";
+  const heading = eventHeading(event).trim().toLowerCase();
+  if (heading && folded === heading) return "";
+  return label;
+}
+
+/** Client, fichiers et contaminants du site, une fois, dédupliqués. */
+export function siteHeaderFacts(documents) {
+  const docs = Array.isArray(documents) ? documents : [];
+  const files = [];
+  const seenFiles = new Set();
+  const clients = [];
+  const seenClients = new Set();
+  const contaminants = [];
+  const seenContaminants = new Set();
+  for (const doc of docs) {
+    if (!doc) continue;
+    const name = fileLabel(doc);
+    const key = doc.document_id || name;
+    if (key && !seenFiles.has(key)) {
+      seenFiles.add(key);
+      files.push({
+        document_id: doc.document_id || key,
+        name,
+        project_id: doc.project_id || "",
+        firm: doc.firm || "",
+        doc_type: docTypeLabel(doc.doc_type),
+        quality: parseQualityLabel(doc.parse_quality),
+      });
+    }
+    const client = String(doc.client || "").trim();
+    const clientKey = client.toLowerCase();
+    if (client && !seenClients.has(clientKey)) {
+      seenClients.add(clientKey);
+      clients.push(client);
+    }
+    const list = Array.isArray(doc.contaminants) ? doc.contaminants : [];
+    for (const raw of list) {
+      const item = String(raw || "").trim();
+      const itemKey = item.toLowerCase();
+      if (!item || seenContaminants.has(itemKey)) continue;
+      seenContaminants.add(itemKey);
+      contaminants.push(item);
+    }
+  }
+  const phaseIds = new Set();
+  for (const doc of docs) {
+    const phase = phaseIdForDocument(doc);
+    if (phase) phaseIds.add(phase);
+  }
+  const phases = ["ees_phase_1", "ees_phase_2"]
+    .filter((id) => phaseIds.has(id))
+    .map((id) => docTypeLabel(id));
+  return { files, clients, contaminants, phases };
+}
+
+/** Fichiers du site affichés dans la barre de contexte (un chip par PDF). */
+export function contextFilesFromDocuments(documents) {
+  return siteHeaderFacts(documents).files.map((file) => ({
+    document_id: file.document_id,
+    name: file.name,
+  }));
+}
+
+/** Libellé d'une journée de chronologie : date, rôles, note utile. */
+export function sectionContextLabel(events, isoDate) {
+  const roles = [];
+  const seenRoles = new Set();
+  const notes = [];
+  const seenNotes = new Set();
+  for (const event of events || []) {
+    const role = roleLabel(event && event.role);
+    if (role && !seenRoles.has(role)) {
+      seenRoles.add(role);
+      roles.push(role);
+    }
+    const note = eventNote(event);
+    if (note && !seenNotes.has(note)) {
+      seenNotes.add(note);
+      notes.push(note);
+    }
+  }
+  const meta = [...roles, ...notes].join(" · ");
+  const date = isoDate || "sans date";
+  return meta ? `${date} ${meta}` : date;
+}
+
+/** Une ligne par fichier, pages uniques triées. Le nom n'est pas répété à chaque page. */
+export function groupCitations(citations) {
+  const groups = [];
+  const index = new Map();
+  for (const citation of Array.isArray(citations) ? citations : []) {
+    if (!citation) continue;
+    const name = String(citation.source || citation.document_id || "source");
+    const key = citation.document_id || name;
+    let group = index.get(key);
+    if (!group) {
+      group = { key, name, pages: [] };
+      index.set(key, group);
+      groups.push(group);
+    }
+    const page = citation.page;
+    if (page != null && page !== "" && !group.pages.includes(page)) {
+      group.pages.push(page);
+    }
+  }
+  for (const group of groups) {
+    group.pages.sort((a, b) => Number(a) - Number(b));
+  }
+  return groups;
+}
+
+/** `document_id` envoyé au chat : la section si son PDF est encore chargé, sinon l'unique fichier. */
+export function contextDocumentId(files, section) {
+  const list = Array.isArray(files) ? files : [];
+  if (
+    section &&
+    section.document_id &&
+    list.some((file) => file.document_id === section.document_id)
+  ) {
+    return section.document_id;
+  }
+  if (list.length === 1) return list[0].document_id || null;
+  return null;
 }
 
 export function groupTimeline(documents, events) {

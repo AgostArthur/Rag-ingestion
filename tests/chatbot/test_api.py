@@ -97,6 +97,53 @@ def test_chat_post_json_is_accepted(client: TestClient):
     assert data["timing"]["steps"]["llm"] == 0.1
 
 
+def test_chat_injects_context_bar_into_the_prompt(monkeypatch, tmp_path: Path):
+    from chatbot.api import create_app, message_with_context
+
+    seen: dict[str, str] = {}
+
+    def _capture(graph, message, *, thread_id, recursion_limit):
+        seen["message"] = message
+        return {"messages": []}, {"total_seconds": 0.01, "steps": {}}
+
+    monkeypatch.setattr("chatbot.api.build_graph", lambda settings: _FakeGraph())
+    monkeypatch.setattr("chatbot.api.last_message_text", lambda result: "pong")
+    monkeypatch.setattr(
+        "chatbot.api.envelope_from_result",
+        lambda result: {
+            "focus": {"document_ids": [], "project_ids": [], "site_ids": []},
+            "documents": [],
+            "citations": [],
+        },
+    )
+    monkeypatch.setattr("chatbot.api.invoke_turn", _capture)
+    client = TestClient(create_app(_settings(checkpoint_db=tmp_path / "ck.sqlite")))
+    res = client.post(
+        "/chat",
+        json={
+            "message": "quels dépassements",
+            "context": [
+                "@E25 - ÉES phase II.pdf",
+                "2025-08-08 Analyse laboratoire",
+            ],
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert seen["message"] == message_with_context(
+        "quels dépassements",
+        ["@E25 - ÉES phase II.pdf", "2025-08-08 Analyse laboratoire"],
+    )
+    assert seen["message"].startswith("Contexte sélectionné dans l'interface:")
+    assert "Question: quels dépassements" in seen["message"]
+
+
+def test_message_with_context_leaves_plain_questions():
+    from chatbot.api import message_with_context
+
+    assert message_with_context("bonjour", []) == "bonjour"
+    assert message_with_context("bonjour", ["  ", ""]) == "bonjour"
+
+
 def test_chat_missing_body_is_json_not_query(client: TestClient):
     res = client.post("/chat")
     assert res.status_code == 422
