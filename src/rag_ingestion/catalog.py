@@ -480,6 +480,24 @@ def get_site(site_id: str, settings: Settings | None = None) -> dict[str, Any] |
         conn.close()
 
 
+def get_site_by_lot(lot: str, settings: Settings | None = None) -> dict[str, Any] | None:
+    """Cherche un site par son numéro de lot cadastral (chiffres seuls, avec ou sans espaces).
+
+    Normalise `lot` (supprime tout sauf les chiffres), construit la clé `lot:{digits}`,
+    puis délègue à `get_site`. Renvoie None si le lot est invalide ou absent du catalog.
+
+    Args:
+        lot: N° de lot brut, ex. « 1 668 054 », « 1668054 », « lot 1668054 ».
+        settings: Config ; `.env` si omis.
+    """
+    from rag_ingestion.normalize import normalize_lot
+
+    normalized = normalize_lot(lot)
+    if not normalized:
+        return None
+    return get_site(f"lot:{normalized}", settings=settings)
+
+
 def list_site_documents(
     site_id: str, settings: Settings | None = None
 ) -> list[dict[str, Any]]:

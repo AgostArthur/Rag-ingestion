@@ -31,6 +31,7 @@ Pas d’écriture catalog depuis ces routes. CORS : origines `localhost:3000` (d
 
 - `thread_id` omis → UUID côté serveur (checkpoint SQLite `data/chat_checkpoints.sqlite`).
 - `site_id` / `document_id` : focus UI. Ils **filtrent** `search_knowledge` (le document prime sur le site) même si le LLM omet l’argument.
+- **Résolution automatique du lot** : si la question contient un n° de lot cadastral (ex. « Lot 1668054 » ou « 1 668 054 »), `search_knowledge` le normalise et interroge SQLite (`get_site_by_lot`) avant d’appeler Qdrant. Si le lot est connu, `site_id=lot:1668054` est injecté comme filtre — sans dépendre du LLM. Le prompt (`config/chatbot/prompt.txt`) enseigne aussi la règle `lot:{chiffres}` pour que le modèle la construise lui-même.
 
 Réponse :
 

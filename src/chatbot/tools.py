@@ -2,10 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import time
 from contextvars import ContextVar
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# Détecte un n° de lot cadastral dans la question : « lot 1668054 », « 1 668 054 », etc.
+# Les lots QC font 5–12 chiffres (ex. 1668054 = 7 chiffres).
+_LOT_QUERY_RE = re.compile(
+    r"(?:lot\s+|lot\s*:\s*|cadastr\w*\s+)?(\d(?:[\s_\-]?\d){4,11})",
+    re.IGNORECASE,
+)
 
 from chatbot.config import ChatSettings, load_chat_settings
 from chatbot.timing import get_turn_timer, record_step
@@ -191,6 +201,34 @@ def apply_ui_focus_filters(filters: dict[str, str]) -> dict[str, str]:
     return out
 
 
+def _resolve_site_id_from_lot(query: str) -> str | None:
+    """Si la question contient un n° de lot cadastral, renvoie le `site_id` du catalog.
+
+    Cherche toutes les séquences de chiffres compatibles avec un lot QC (5–12 chiffres),
+    normalise (supprime espaces/tirets) et interroge SQLite. Renvoie le premier
+    `site_id` trouvé, None si aucun lot ne correspond.
+
+    Exemple : « Lot 1 668 054 » → normalise « 1668054 » → retourne « lot:1668054 ».
+    """
+    from rag_ingestion.catalog import get_site_by_lot
+    from rag_ingestion.normalize import normalize_lot
+
+    for match in _LOT_QUERY_RE.finditer(query):
+        raw = match.group(1)
+        lot = normalize_lot(raw)
+        if not lot:
+            continue
+        try:
+            site = get_site_by_lot(lot)
+            if site:
+                site_id = str(site.get("site_id") or f"lot:{lot}")
+                logger.debug("Lot auto-resolved: %s → %s", lot, site_id)
+                return site_id
+        except Exception:
+            logger.debug("Lot lookup failed for %s", lot, exc_info=True)
+    return None
+
+
 def build_search_tool(settings: ChatSettings | None = None):
     """Outil `search_knowledge` qui appelle `rag_ingestion.retrieve.search`.
 
@@ -243,16 +281,35 @@ def build_search_tool(settings: ChatSettings | None = None):
         """
         n = limit if limit and limit > 0 else default_limit
         n = max(1, min(int(n), _MAX_RAG_LIMIT))
-        filters = apply_ui_focus_filters(
-            _filters_from_args(
-                doc_type,
-                entities,
-                document_id,
-                site_id,
-                project_id,
-                contaminants,
-            )
+
+        # Ordre de priorité strict :
+        #   1. document_id ou site_id explicites du LLM
+        #   2. résolution automatique du lot depuis la question
+        #   3. focus UI (site actif dans la carte / chronologie)
+        #
+        # Le ui_site_id NE doit PAS écraser un lot que l'utilisateur vient
+        # de mentionner explicitement — sinon la carte scoped sur un site A
+        # empêche de trouver le rapport du site B.
+        llm_filters = _filters_from_args(
+            doc_type,
+            entities,
+            document_id,
+            site_id,
+            project_id,
+            contaminants,
         )
+        # Résolution automatique si le LLM n'a pas posé de scope document/site.
+        if not llm_filters.get("site_id") and not llm_filters.get("document_id"):
+            resolved = _resolve_site_id_from_lot(query)
+            if resolved:
+                llm_filters = {**llm_filters, "site_id": resolved}
+                logger.debug("Auto-injected site_id=%s from lot in query", resolved)
+
+        # Focus UI : uniquement si ni le LLM ni la résolution lot n'ont fixé de scope.
+        if llm_filters.get("site_id") or llm_filters.get("document_id"):
+            filters = llm_filters
+        else:
+            filters = apply_ui_focus_filters(llm_filters)
         timer = get_turn_timer()
         t0 = time.perf_counter()
         hits = retrieve_search(

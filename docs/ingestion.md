@@ -514,6 +514,16 @@ Géocodage **à l’ingest seulement**, si `GEOCODE_ENABLED=1` : polygone Cadast
 
 `data/documents/{id}.json` = journal (timings, chemins) **plus** un dump de la fiche métier. L’UI lit SQLite, pas ce JSON.
 
+Fonctions de lecture catalog utilisées par le chatbot :
+
+| Fonction | Usage |
+|---|---|
+| `get_site(site_id)` | Fiche site + `document_ids` (clé exacte, ex. `lot:1668054`) |
+| `get_site_by_lot(lot)` | Idem, mais à partir du n° de lot brut (`"1 668 054"` ou `"1668054"`) — normalise les espaces, préfixe `lot:`, délègue à `get_site` |
+| `get_documents(ids)` | Fiches document par liste de SHA-256 |
+| `list_site_documents(site_id)` | Documents d'un site triés par `report_date` |
+| `get_site_timeline(site_id)` | Events chronologiques d'un site |
+
 ### 6–7. Embeddings et Qdrant
 
 `embed.py` : `EMBED_MODEL` (repli FastEmbed `intfloat/multilingual-e5-large`). Dimension lue chez FastEmbed ; changer de modèle ⇒ autre collection ou ré-ingest complet.
@@ -528,6 +538,7 @@ Géocodage **à l’ingest seulement**, si `GEOCODE_ENABLED=1` : polygone Cadast
 2. si un n° de projet apparaît dans la question ou les filtres : deuxième requête **mot-clé** (`entities` / `project_id` / MatchText dans `text`), fusion des hits ;
 3. chatbot (`rag_hybrid_text`) : même branche mot-clé pour les termes d'identité (`client`, `firme`, `adresse`, …) ;
 4. chatbot (`rag_include_catalog`) : les fiches SQLite (client, firme, adresse, lot) sont **préfixées** au markdown de l'outil — c'est la source d'identité, pas uniquement les chunks.
+5. chatbot (**résolution automatique du lot**) : avant tout appel Qdrant, `search_knowledge` détecte les séquences de chiffres compatibles avec un lot cadastral QC (5–12 chiffres, avec ou sans espaces) dans la question, les normalise via `normalize_lot`, et consulte SQLite (`get_site_by_lot`). Si le lot existe, `site_id=lot:{chiffres}` est injecté comme filtre Qdrant automatiquement — indépendamment du LLM. Exemple : « Lot 1 668 054 » → filtre `site_id=lot:1668054` avant la recherche dense.
 
 Le chatbot lit ces réglages dans `config/chatbot/settings.json` (`rag_limit`, `rag_prefetch`, `rag_score_threshold`, `temperature`, `top_p`).
 

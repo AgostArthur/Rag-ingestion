@@ -16,7 +16,7 @@ Split every user request into:
 | `project_id` | `--filter project_id=` | a project number (4405, 2259, …) |
 | `entities` | `--filter entities=` | a firm, client, or the same project number |
 | `contaminants` | `--filter contaminants=` | a **detected** substance (HAM, HAP, C10-C50, amiante, hydrocarbures, …) |
-| `site_id` | `--filter site_id=` | a known catalog id (`lot:2363352`) from a previous hit or the user |
+| `site_id` | `--filter site_id=` | user gives a lot number (e.g. « Lot 1668054 » or « 1 668 054 ») → build `lot:{digits}` directly (`lot:1668054`); or from a previous hit |
 | `document_id` | `--filter document_id=` | a SHA-256 from a previous hit; never invent one |
 | `limit` | `--limit` | rarely; `0` uses the default |
 
@@ -25,11 +25,21 @@ Split every user request into:
 
 Put a project number in **both** `query` and `project_id` (you may also pass it in `entities`). Hybrid search uses the number in the query text; the filter restricts the payload.
 
-Do not invent `site_id` or `document_id`. Copy them from hits or from the user. Do not set `contaminants` unless the user named a substance (or a previous hit listed it).
+**Lot number → `site_id`**: if the user gives only a lot number (e.g. « Lot 1668054 », « 1 668 054 », « cadastre 1668054 »), build `site_id` directly: remove all spaces/dashes, prefix with `lot:` → `site_id="lot:1668054"`. This is NOT inventing — it is the catalog convention. Always pass `site_id` this way when a lot is given.
+
+Do not invent `document_id`. Do not set `contaminants` unless the user named a substance (or a previous hit listed it).
 
 If a filtered search returns nothing, retry **once** with fewer filters, but keep the project number in `query`.
 
 ## Examples (user → CLI → tool)
+
+User: « Lot 1668054 »
+CLI: `rag-ingest query "lot 1668054" --filter site_id=lot:1668054`
+Tool: `search_knowledge(query="lot 1668054", site_id="lot:1668054")`
+
+User: « 1 668 054 » (lot avec espaces)
+CLI: `rag-ingest query "1668054" --filter site_id=lot:1668054`
+Tool: `search_knowledge(query="lot 1668054", site_id="lot:1668054")`
 
 User: « Y a-t-il des HAM en phase II ? »
 CLI: `rag-ingest query "HAM" --filter doc_type=ees_phase_2 --filter contaminants=HAM`
