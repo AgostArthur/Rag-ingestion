@@ -100,6 +100,38 @@ def test_heading_fallback_when_filename_is_mute(caplog):
     assert "aucun motif de profil n'a matché" not in caplog.text
 
 
+def test_heading_fallback_skips_letterhead_before_phase_title(caplog):
+    """Couverture ÉES : l'OCR met l'adresse du papier à en-tête avant « PHASE I »."""
+    markdown = (
+        "###### 3065, rue Peugeot Laval (Québec) H7L 5C4 info@enviro-experts.com\n\n"
+        "###### ENVIRO-EXPERTS ÉVALUATION ENVIRONNEMENTALE DE SITE PHASE I\n\n"
+        "###### 11425, boul. Langelier, Montréal, Québec Lot 1 669 394\n"
+    )
+    with caplog.at_level("INFO"):
+        schema = _resolve(
+            "E25-5915-11425 Boul Langelier, Montréal, QC.pdf",
+            markdown=markdown,
+        )
+    assert schema.profile_id == "ees_phase_1"
+    assert schema.match_source == "heading"
+
+
+def test_heading_fallback_finds_phase_ii_on_second_title():
+    schema = _resolve(
+        "scan_final.pdf",
+        markdown="# 3065, rue Peugeot\n\n# Évaluation environnementale de site phase II\n",
+    )
+    assert schema.profile_id == "ees_phase_2"
+    assert schema.match_source == "heading"
+
+
+def test_heading_fallback_ignores_titles_after_the_third():
+    markdown = "# Adresse de la firme\n# Table des matières\n# Introduction\n# ÉES phase I\n"
+    schema = _resolve("scan_final.pdf", markdown=markdown)
+    assert schema.profile_id == "default"
+    assert schema.match_source == "default"
+
+
 def test_override_wins_over_filename(caplog):
     with caplog.at_level("INFO"):
         schema = _resolve("4405_Phase_II.pdf", override="ees_phase_1")

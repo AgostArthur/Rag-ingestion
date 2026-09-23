@@ -236,11 +236,11 @@ On passe **tout** le Markdown du document (`parsed.markdown`), pas les chunks un
 Le code ne durcit **aucune** classe Python. Le schéma est 100 % dans `config/langextract/` :
 
 - `prompt.base.txt` — classes autorisées, ancrage verbatim, règle `project_id` (partagé)
-- `profiles.json` — ordre des profils et motifs sur le **nom de fichier** (puis le premier heading Markdown)
+- `profiles.json` — ordre des profils et motifs sur le **nom de fichier** (puis les trois premiers titres Markdown)
 - `profiles/<id>/addendum.txt` — consigne métier du profil
 - `profiles/<id>/few_shots.json` — exemples d’alignement
 
-À l’ingest, `resolve_extract_schema` concatène base + addendum et charge les few-shots du profil. Priorité : `--profile` > nom du PDF > premier heading > `default`. Chaque résolution est loguée (`type=` + `fichier=`) ; un nom sans motif connu déclenche un **warning** et le schéma générique.
+À l’ingest, `resolve_extract_schema` concatène base + addendum et charge les few-shots du profil. Priorité : `--profile` > nom du PDF > les trois premiers titres Markdown (dans l’ordre du fichier) > `default`. Le premier titre est souvent l’adresse du papier à en-tête après OCR ; les deux suivants couvrent le vrai titre de couverture. Chaque résolution est loguée (`type=` + `fichier=`) ; un nom et ces titres sans motif connu déclenchent un **warning** et le schéma générique.
 
 Ordre dans `profiles.json` : **ees_phase_2 avant ees_phase_1**, sinon `phase II` serait lu comme `phase I`. Les ids de profil (`--profile`, log `type=`, filtre Qdrant `doc_type`) sont **`ees_phase_1` / `ees_phase_2` / `default`**. Les dossiers restent `profiles/phase_1/` et `profiles/phase_2/`.
 

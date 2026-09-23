@@ -1,4 +1,4 @@
-"""Routage du schéma LangExtract : profil selon le nom de fichier (ou un override)."""
+"""Routage du schéma LangExtract : profil selon le nom de fichier, les trois premiers titres, ou un override."""
 
 from __future__ import annotations
 
@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 MatchSource = Literal["override", "filename", "heading", "default"]
 
 _HEADING_RE = re.compile(r"(?m)^#{1,6}\s+(.+)$")
+# L'OCR met souvent l'adresse du papier à en-tête en premier titre.
+# On regarde les suivants avant de tomber sur `default`.
+_HEADING_SCAN_LIMIT = 3
 
 
 @dataclass(frozen=True)
@@ -79,9 +82,17 @@ def _resolve_under(root: Path, relative: str) -> Path:
     return path
 
 
-def _first_heading(markdown: str) -> str:
-    match = _HEADING_RE.search(markdown[:8000])
-    return match.group(1).strip() if match else ""
+def _headings(markdown: str, *, limit: int = _HEADING_SCAN_LIMIT) -> list[str]:
+    """Les premiers titres Markdown (`#` … `######`), dans l'ordre du fichier."""
+    found: list[str] = []
+    for match in _HEADING_RE.finditer(markdown):
+        text = match.group(1).strip()
+        if not text:
+            continue
+        found.append(text)
+        if len(found) >= limit:
+            break
+    return found
 
 
 def _matches(patterns: tuple[re.Pattern[str], ...], text: str) -> bool:
@@ -230,7 +241,7 @@ def resolve_extract_schema(
     override: str | None = None,
     settings: Settings | None = None,
 ) -> ExtractSchema:
-    """Choisit le profil LangExtract (override > nom de fichier > heading > default).
+    """Choisit le profil LangExtract (override > nom de fichier > 3 titres > default).
 
     Chaque résolution est journalisée (type de profil + nom du fichier) pour
     contrôle visuel à l'ingest. Un nom sans motif connu déclenche un warning
@@ -238,7 +249,8 @@ def resolve_extract_schema(
 
     Args:
         source_path: Chemin du PDF (seul le nom est inspecté).
-        markdown: Markdown déjà parsé ; le premier heading sert de repli.
+        markdown: Markdown déjà parsé. Si le nom ne matche pas, les trois
+            premiers titres Markdown servent de repli, dans l'ordre.
         override: Identifiant de profil (`--profile` : `ees_phase_1`,
             `ees_phase_2`, `default`) ; gagne toujours. Même id que `doc_type`.
         settings: Config ; `.env` si omis.
@@ -283,8 +295,7 @@ def resolve_extract_schema(
             _log_classification(schema.profile_id, source_name, schema.match_source)
             return schema
 
-    heading = _first_heading(markdown or "")
-    if heading:
+    for heading in _headings(markdown or ""):
         for profile in catalog.profiles:
             if _matches(profile.heading, heading):
                 schema = _build_schema(
