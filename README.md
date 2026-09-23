@@ -4,7 +4,7 @@ Pipeline : PDF → LiteParse (OCR) → Markdown → chunks + LangExtract → **c
 
 - `rag_ingestion` — ingest, recherche hybride, catalog (`sites` / `documents` / `events`)
 - `chatbot` — agent LangGraph ; outil `search_knowledge`. `POST /chat` renvoie `focus` + citations issus des hits
-- `ui/` — carte (polygone de lot + pin au centroïde), chronologie du site, chat (`document_id` si on clique un rapport)
+- `ui/` — carte à gauche (65 %), chat à droite (35 %). Aucun site n’est sélectionné au chargement : la carte ouvre le sud du Québec autour de Montréal. Un clic sur une épingle charge le site.
 
 ## Déploiement via Docker
 
@@ -19,7 +19,7 @@ docker compose up -d --build
 Le premier build télécharge le modèle FastEmbed (`EMBED_MODEL`). Pour sauter ça : `PREFETCH_EMBED=0 docker compose build`.
 
 - Interface : `http://localhost:3000` (nginx reverse-proxy vers l’API)
-- PDF → `incoming/` → worker → `data/archive/{sha}/` (même SHA déjà au catalog **et** encore en archive : pas de ré-ingest). Échecs → `data/failed/`
+- PDF → `incoming/` → `ingest-worker` → `data/archive/{sha}/` (même SHA déjà au catalog **et** encore en archive : pas de ré-ingest). Échecs → `data/failed/`
 - API brute : `http://localhost:8000`
 - Qdrant : `http://localhost:6333`
 
@@ -34,7 +34,7 @@ LLM hors image (chat + LangExtract). Un switch dans `.env` :
 | `openai` | API OpenAI (ou tout `/v1`) | LangExtract OpenAI |
 | `gemini` | SDK natif (`langchain-google-genai`) | LangExtract Gemini |
 
-Overrides : `CHAT_PROVIDER`, `LANGEXTRACT_PROVIDER`. Embeddings FastEmbed **inchangés** (locaux). Sans LLM local : `INGEST_SKIP_EXTRACT=1` ou une clé cloud. Ollama dans Compose : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://ollama:11434`.
+Overrides : `CHAT_PROVIDER`, `LANGEXTRACT_PROVIDER`. Embeddings FastEmbed **inchangés** (locaux). Sans LLM local : `INGEST_SKIP_EXTRACT=1` ou une clé cloud. Ollama dans Compose : `docker compose --profile extract up -d` et `OLLAMA_BASE_URL=http://extract-llm:11434`.
 
 ## Ingest
 
@@ -42,7 +42,7 @@ Le catalog SQLite est le **registre** écrit après ingest (`document_id` = SHA-
 
 | Déclencheur | Commande |
 |---|---|
-| Drop folder | `incoming/` + Compose `worker` / `rag-ingest watch` |
+| Drop folder | `incoming/` + Compose `ingest-worker` / `rag-ingest watch` |
 | Manuel | `rag-ingest ingest fichier.pdf` ou un dossier |
 | Un scan | `rag-ingest watch --once` |
 
@@ -50,7 +50,7 @@ Le catalog SQLite est le **registre** écrit après ingest (`document_id` = SHA-
 
 ```bash
 cp .env.example .env
-docker compose up -d qdrant
+docker compose up -d vector-store
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]" && pip install -e ".[chat]"
 rag-ingest ingest chemin/vers/doc.pdf
@@ -67,7 +67,7 @@ Si le nom n’est pas dans FastEmbed, repli `intfloat/multilingual-e5-large`.
 
 Schéma LangExtract : `config/langextract/profiles.json` (prompt de base + addendum + few-shots par profil). Le nom du PDF choisit le profil (motifs dans `profiles.json`) ; sinon `default` (warning). Chaque ingest logue `type=` et `fichier=`. L’identifiant est le même que `doc_type` Qdrant : `ees_phase_1` / `ees_phase_2`. Override : `rag-ingest ingest fichier.pdf --profile ees_phase_1`. Chaque `extraction_text` de few-shot doit apparaître tel quel dans `text`.
 
-Détail du pipeline : `[docs/ingestion.md](docs/ingestion.md)`.
+Détail du pipeline : [`docs/INGESTION.md`](docs/INGESTION.md).
 
 ## Chat
 
@@ -77,6 +77,6 @@ Le LLM n’a pas les chunks dans le prompt. Provider : `LLM_PROVIDER` (`local` /
 rag-chat          # REPL ; JSON focus sous la réponse
 rag-chat serve    # POST /chat → { reply, thread_id, focus, documents, citations }
 ```
-Vite proxy `/chat`, `/sites`, `/documents` vers `:8000`. Carte : Leaflet / OpenStreetMap (pas de clé).
+Vite proxy `/chat`, `/sites`, `/documents` vers `:8000`. Carte : Leaflet / OpenStreetMap (pas de clé). Au chargement, aucun site n’est actif. Un clic d’épingle remplit la barre de contexte (`@fichier`) sans écrire dans le champ. Une date de la chronologie (panneau repliable en haut à droite de la carte) ajoute la journée. Les réponses du chat rendent le Markdown et le LaTeX ; les sources groupent les pages sous un seul nom de fichier.
 
-Documentation : [`docs/README.md`](docs/README.md) (pipeline, catalog, API, UI).
+Vue d'ensemble : [`docs/OVERVIEW.md`](docs/OVERVIEW.md). Pipeline : [`docs/INGESTION.md`](docs/INGESTION.md). API et UI : [`docs/API.md`](docs/API.md).
