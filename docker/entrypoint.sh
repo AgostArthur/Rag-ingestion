@@ -6,7 +6,7 @@ import sys
 import time
 import urllib.request
 
-url = os.environ.get("QDRANT_URL", "http://qdrant:6333").rstrip("/") + "/collections"
+url = os.environ.get("QDRANT_URL", "http://vector-store:6333").rstrip("/") + "/collections"
 deadline = time.time() + 90
 last = None
 while time.time() < deadline:
